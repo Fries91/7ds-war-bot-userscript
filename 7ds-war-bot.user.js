@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         7DS*: Wrath War-Bot 🛡️ (Overlay + Auto ID + OPT) — Status + Hospital
+// @name         7DS*: Wrath War-Bot 🛡️ (Overlay matches app.py realtime panel)
 // @namespace    7ds-wrath-warbot
-// @version      6.3.1
-// @description  Overlay shows Online/Idle/Offline/Hospital from /state (no iframe = CSP-proof). OPT auto-detects your Torn ID. Token 666.
+// @version      6.5.0
+// @description  Shield overlay styled to match your app.py realtime panel exactly (pills/sections/warbox). Uses /state (CSP-proof). OPT still available (token 666).
 // @match        https://www.torn.com/*
 // @match        https://torn.com/*
 // @grant        GM_addStyle
@@ -22,24 +22,14 @@
 
   const SHIELD_TOP = 110;
   const SHIELD_RIGHT = 12;
-  const REFRESH_MS = 15000;
+
+  // Match your app.py panel refresh feel
+  const REFRESH_MS = 8000;
 
   function esc(s) {
     return (s ?? "").toString().replace(/[&<>"']/g, (m) => ({
       "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
     }[m]));
-  }
-
-  function toast(msg) {
-    let t = document.getElementById("wrath-toast");
-    if (!t) {
-      t = document.createElement("div");
-      t.id = "wrath-toast";
-      document.body.appendChild(t);
-    }
-    t.textContent = msg;
-    t.classList.add("show");
-    setTimeout(() => t.classList.remove("show"), 2400);
   }
 
   function httpGetJson(url) {
@@ -106,185 +96,238 @@
   }
 
   GM_addStyle(`
+    /* Keep overlay clickable */
     #wrath-overlay, #wrath-overlay * { pointer-events: auto !important; }
 
+    /* Shield button (simple) */
     #wrath-shield{
       position:fixed; top:${SHIELD_TOP}px; right:${SHIELD_RIGHT}px;
-      z-index:2147483647; width:48px; height:48px; border-radius:14px;
-      display:grid; place-items:center; cursor:pointer; user-select:none;
-      -webkit-tap-highlight-color:transparent;
-      background: radial-gradient(circle at 30% 30%, rgba(255,80,70,.30), rgba(0,0,0,.90));
-      border:1px solid rgba(255,60,50,.55);
-      box-shadow:0 10px 28px rgba(0,0,0,.55), 0 0 18px rgba(255,60,50,.35);
-      backdrop-filter: blur(6px);
+      z-index:2147483647;
+      width:48px; height:48px; border-radius:14px;
+      display:grid; place-items:center;
+      cursor:pointer; user-select:none; -webkit-tap-highlight-color:transparent;
+      background: rgba(255,255,255,.06);
+      border:1px solid rgba(255,255,255,.10);
+      box-shadow:0 10px 26px rgba(0,0,0,.55);
+      color:#f2f2f2;
+      font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+      font-size:22px;
     }
-    #wrath-shield .icon{ font-size:22px; filter: drop-shadow(0 0 10px rgba(255,60,50,.55)); }
 
+    /* Overlay matches app.py */
     #wrath-overlay{
       position:fixed; inset:0; z-index:2147483646; display:none;
-      background: rgba(0,0,0,.92);
-      color:#fff; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;
-      overflow-y:auto; padding: 18px 12px 28px 12px;
+      background:#0b0b0b;
+      color:#f2f2f2;
+      font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+      overflow-y:auto;
+      padding:10px;
     }
 
-    #wrath-topbar{
-      position:sticky; top:0; z-index:2147483646;
-      display:flex; align-items:center; justify-content:space-between; gap:10px;
-      padding:10px; margin:-18px -12px 12px -12px;
-      background: rgba(0,0,0,.85);
-      border-bottom:1px solid rgba(255,60,50,.25);
-      backdrop-filter: blur(8px);
-    }
+    .topbar { display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:10px; }
+    .title { font-weight:900; letter-spacing:.6px; font-size:16px; }
+    .meta { font-size:12px; opacity:.85; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+    .pill { display:inline-block; padding:6px 10px; border-radius:999px; background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.08); font-size:12px; white-space:nowrap; }
+    .btn { cursor:pointer; user-select:none; padding:6px 10px; border-radius:999px; background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.10); font-size:12px; white-space:nowrap; }
+    .btn.on { border-color: rgba(0,255,102,.25); }
 
-    #wrath-title{ display:flex; align-items:center; gap:10px; min-width:0; }
-    #wrath-crest{
-      width:34px; height:34px; border-radius:12px; display:grid; place-items:center;
-      font-weight:900; color:#ffcc66;
-      border:1px solid rgba(215,179,90,.25);
-      background: rgba(255,60,50,.08);
-    }
-    #wrath-title .h{ font-size:14px; font-weight:900; color:#ffcc66; letter-spacing:.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    #wrath-title .s{ font-size:11px; opacity:.9; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .divider { margin:14px 0; height:1px; background:rgba(255,255,255,.10); }
+    .section-title { font-weight:900; letter-spacing:.6px; margin-top:10px; margin-bottom:6px; display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; }
+    .section-title .small { font-size:12px; opacity:.8; font-weight:600; }
 
-    #wrath-actions{ display:flex; align-items:center; gap:10px; flex:0 0 auto; }
-    .wrath-btn{
-      border:1px solid rgba(255,60,50,.25); background: rgba(0,0,0,.55); color:#fff;
-      border-radius:12px; padding:8px 10px; font-size:12px; cursor:pointer; user-select:none;
-    }
-    #wrath-opt{ border-color: rgba(215,179,90,.25); color:#ffcc66; }
-    #wrath-opt.on{ border-color: rgba(44,255,111,.35); color:#2cff6f; }
+    h2 { margin:12px 0 6px; padding-bottom:6px; border-bottom:1px solid rgba(255,255,255,.08); font-size:14px; letter-spacing:.4px; display:flex; justify-content:space-between; align-items:center; gap:10px; }
 
-    #wrath-wrap{ max-width:980px; margin:0 auto; display:grid; grid-template-columns:1fr; gap:12px; }
-    @media (min-width:820px){ #wrath-wrap{ grid-template-columns:1fr 1fr; } }
+    .member { padding:8px 10px; margin:6px 0; border-radius:10px; display:flex; justify-content:space-between; align-items:center; gap:10px; font-size:13px; background:rgba(255,255,255,.03); border:1px solid rgba(255,255,255,.06); }
+    .left { display:flex; flex-direction:column; gap:2px; min-width:0; }
+    .name { font-weight:800; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:68vw; }
+    .sub { opacity:.75; font-size:11px; }
+    .right { opacity:.9; font-size:12px; white-space:nowrap; }
 
-    .card{
-      background: rgba(0,0,0,.62);
-      border:1px solid rgba(255,60,50,.25);
-      border-radius:16px; padding:12px;
-      box-shadow:0 12px 35px rgba(0,0,0,.55);
-    }
-    .card h2{ margin:0 0 8px 0; font-size:13px; display:flex; align-items:center; justify-content:space-between; gap:10px; }
-    .pill{ font-size:11px; padding:4px 8px; border-radius:999px; border:1px solid rgba(215,179,90,.22); background: rgba(215,179,90,.08); color:#ffcc66; white-space:nowrap; }
+    .online{ border-left:4px solid #00ff66; }
+    .idle{ border-left:4px solid #ffd000; }
+    .offline{ border-left:4px solid #ff3333; }
+    .hospital{ border-left:4px solid #b06cff; }
 
-    .row{ display:flex; justify-content:space-between; gap:12px; padding:7px 0; border-top:1px solid rgba(255,255,255,.08); font-size:12px; }
-    .row:first-of-type{ border-top:none; }
-    .k{ opacity:.85; }
-    .v{ text-align:right; }
+    .section-empty { opacity:.7; font-size:12px; padding:8px 2px; }
 
-    .members{ display:flex; flex-direction:column; gap:8px; }
-    .m{
-      background: rgba(0,0,0,.45);
-      border:1px solid rgba(255,60,50,.18);
-      border-radius:14px; padding:9px 10px;
-      display:flex; align-items:center; justify-content:space-between; gap:10px;
-    }
-    .left{ display:flex; align-items:center; gap:10px; min-width:0; }
-    .dot{ width:10px; height:10px; border-radius:999px; box-shadow:0 0 0 3px rgba(255,255,255,.05); flex:0 0 auto; }
-    .dot.online{ background:#2cff6f; }
-    .dot.idle{ background:#ffcc00; }
-    .dot.offline{ background:#ff4444; }
-    .dot.hospital{ background:#b46bff; }
-    .name{ font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:56vw; }
-    .meta{ font-size:11px; opacity:.85; text-align:right; white-space:nowrap; }
+    .err { margin-top:10px; padding:10px; border-radius:12px; background:rgba(255,80,80,.12); border:1px solid rgba(255,80,80,.25); font-size:12px; white-space:pre-wrap; }
 
-    #wrath-err{
-      display:none; margin-top:12px; padding:10px; border-radius:14px;
-      border:1px solid rgba(255,59,48,.35); background: rgba(255,59,48,.08);
-      color:#ffd6d3; font-size:12px; white-space:pre-wrap;
-      max-width:980px; margin-left:auto; margin-right:auto;
-    }
-
-    #wrath-toast{
-      position:fixed; left:50%; bottom:18px; transform:translateX(-50%);
-      z-index:2147483647; padding:10px 12px; border-radius:14px;
-      background: rgba(0,0,0,.78); border:1px solid rgba(255,60,50,.22);
-      color:#fff; font:12px/1.2 -apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;
-      box-shadow:0 10px 26px rgba(0,0,0,.55);
-      opacity:0; pointer-events:none; transition: opacity .18s ease;
-      white-space:pre-wrap; max-width:90vw;
-    }
-    #wrath-toast.show{ opacity:1; }
+    .warbox { margin-top:10px; padding:10px; border-radius:12px; background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.07); font-size:12px; line-height:1.35; }
+    .warrow { display:flex; justify-content:space-between; gap:10px; margin:3px 0; }
+    .label { opacity:.75; }
   `);
 
-  function render(data) {
-    const errBox = document.getElementById("wrath-err");
-    if (errBox) { errBox.style.display = "none"; errBox.textContent = ""; }
+  function $(id) { return document.getElementById(id); }
 
-    const f = data.faction || {};
-    const tag = f.tag ? `[${f.tag}] ` : "";
-    const sub = document.getElementById("wrath-sub");
-    if (sub) sub.textContent = `${tag}${f.name || "Faction"}`;
+  function fmtMins(n) {
+    if (typeof n !== "number") return "—";
+    if (n < 60) return `${n}m`;
+    const h = Math.floor(n / 60), m = n % 60;
+    return `${h}h ${m}m`;
+  }
 
-    const upd = document.getElementById("wrath-updated");
-    if (upd) upd.textContent = data.updated_at ? "Updated" : "Waiting";
+  function hospLeft(until) {
+    const t = Number(until);
+    if (!t) return "in hospital";
+    const now = Date.now() / 1000;
+    const mins = Math.max(0, Math.round((t - now) / 60));
+    if (mins <= 0) return "in hospital";
+    if (mins < 60) return `${mins}m left`;
+    const h = Math.floor(mins / 60), m = mins % 60;
+    return `${h}h ${m}m left`;
+  }
 
-    const w = data.war || {};
-    const warEl = document.getElementById("wrath-war");
-    if (warEl) {
+  function memberHTML(r, st) {
+    const name = esc(r.name || r.id || "Unknown");
+    const id = esc(r.id || "");
+    const right = st === "hospital" ? hospLeft(r.hospital_until) : fmtMins(r.minutes);
+    return `
+      <div class="member ${st}">
+        <div class="left">
+          <div class="name">${name}</div>
+          <div class="sub">ID: ${id}</div>
+        </div>
+        <div class="right">${esc(right)}</div>
+      </div>
+    `;
+  }
+
+  function split(rows) {
+    const online = [], idle = [], offline = [], hosp = [];
+    for (const r of (rows || [])) {
+      const isHosp = !!r.hospital || r.status === "hospital";
+      if (isHosp) { hosp.push(r); continue; }
+      if (r.status === "online") online.push(r);
+      else if (r.status === "idle") idle.push(r);
+      else offline.push(r);
+    }
+    online.sort((a,b)=>(a.minutes ?? 999999) - (b.minutes ?? 999999));
+    idle.sort((a,b)=>(a.minutes ?? 999999) - (b.minutes ?? 999999));
+    offline.sort((a,b)=>(a.minutes ?? 999999) - (b.minutes ?? 999999));
+    hosp.sort((a,b)=>(Number(a.hospital_until) || 9999999999) - (Number(b.hospital_until) || 9999999999));
+    return { online, idle, offline, hosp };
+  }
+
+  function setList(el, arr, st, emptyText) {
+    el.innerHTML = "";
+    if (!arr.length) {
+      el.innerHTML = `<div class="section-empty">${esc(emptyText)}</div>`;
+      return;
+    }
+    for (const r of arr) el.insertAdjacentHTML("beforeend", memberHTML(r, st));
+  }
+
+  function syncOptUI(tornId) {
+    const btn = $("rt-opt");
+    const txt = $("rt-opt-text");
+    if (!btn || !txt) return;
+    const on = getLocalAvail(tornId);
+    btn.classList.toggle("on", on);
+    txt.textContent = on ? "OPTED IN" : "OPT IN";
+  }
+
+  async function ensureIdOrWarn() {
+    const tid = detectTornId();
+    if (!tid) {
+      // match app look: error box
+      const err = $("rt-error");
+      if (err) {
+        err.style.display = "block";
+        err.textContent = "Couldn't detect your Torn ID yet.\nOpen your profile/sidebar then try OPT again.";
+      }
+      return null;
+    }
+    return tid;
+  }
+
+  function render(state) {
+    // error
+    const err = $("rt-error");
+    if (state.last_error) {
+      err.style.display = "block";
+      err.textContent = "Last error:\n" + JSON.stringify(state.last_error, null, 2);
+    } else {
+      // keep any manual message? if you want strict match, hide when no errors:
+      err.style.display = "none";
+      err.textContent = "";
+    }
+
+    // top counters
+    const c = state.counts || {};
+    $("rt-updated").textContent = `Updated: ${state.updated_at || "—"}`;
+    $("rt-online").textContent = `🟢 ${c.online ?? 0}`;
+    $("rt-idle").textContent = `🟡 ${c.idle ?? 0}`;
+    $("rt-offline").textContent = `🔴 ${c.offline ?? 0}`;
+    $("rt-hospital").textContent = `🏥 ${c.hospital ?? 0}`;
+    $("rt-avail").textContent = `✅ Avail: ${state.available_count ?? 0}`;
+
+    // faction title
+    const f = state.faction || {};
+    $("rt-you-title").textContent = `${(f.tag ? `[${f.tag}] ` : "")}${f.name || ""}`.trim() || "—";
+
+    // war box
+    const w = state.war || {};
+    const warShow = (w.opponent || w.target || w.score !== null || w.enemy_score !== null);
+    const warEl = $("rt-war");
+    warEl.style.display = warShow ? "block" : "none";
+    if (warShow) {
       warEl.innerHTML = `
-        <div class="row"><div class="k">Opponent</div><div class="v">${esc(w.opponent || "No active war")}</div></div>
-        <div class="row"><div class="k">Target</div><div class="v">${esc(w.target ?? "—")}</div></div>
-        <div class="row"><div class="k">Your Score</div><div class="v">${esc(w.score ?? "—")}</div></div>
-        <div class="row"><div class="k">Enemy Score</div><div class="v">${esc(w.enemy_score ?? "—")}</div></div>
+        <div class="warrow"><div class="label">Opponent</div><div>${esc(w.opponent || "—")}</div></div>
+        <div class="warrow"><div class="label">Opponent ID</div><div>${esc(w.opponent_id || "—")}</div></div>
+        <div class="warrow"><div class="label">Our Score</div><div>${esc(w.score ?? "—")}</div></div>
+        <div class="warrow"><div class="label">Enemy Score</div><div>${esc(w.enemy_score ?? "—")}</div></div>
+        <div class="warrow"><div class="label">Target</div><div>${esc(w.target ?? "—")}</div></div>
+        <div class="warrow"><div class="label">Start</div><div>${esc(w.start || "—")}</div></div>
+        <div class="warrow"><div class="label">End</div><div>${esc(w.end || "—")}</div></div>
       `;
     }
 
-    const c = data.counts || {};
-    const counts = document.getElementById("wrath-counts");
-    if (counts) {
-      counts.textContent = `🟢 ${c.online ?? 0}  🟡 ${c.idle ?? 0}  🔴 ${c.offline ?? 0}  🏥 ${c.hospital ?? 0}`;
-    }
+    // you lists
+    const you = split(state.rows || []);
+    $("rt-you-online-count").textContent = String(you.online.length);
+    $("rt-you-idle-count").textContent = String(you.idle.length);
+    $("rt-you-hosp-count").textContent = String(you.hosp.length);
+    $("rt-you-offline-count").textContent = String(you.offline.length);
 
-    const rows = data.rows || [];
-    const membersWrap = document.getElementById("wrath-members");
-    if (membersWrap) membersWrap.innerHTML = "";
+    setList($("rt-you-online"), you.online, "online", "No one online right now.");
+    setList($("rt-you-idle"), you.idle, "idle", "No one idle right now.");
+    setList($("rt-you-hosp"), you.hosp, "hospital", "No one in hospital right now.");
+    setList($("rt-you-offline"), you.offline, "offline", "No one offline right now.");
 
-    for (const r of rows) {
-      const st = r.status || "offline";
-      const mins = (typeof r.minutes === "number") ? `${r.minutes}m` : "—";
-      const label =
-        st === "hospital" ? "HOSPITAL" :
-        st === "online" ? "ONLINE" :
-        st === "idle" ? "IDLE" : "OFFLINE";
+    // enemy
+    const enemy = state.enemy || {};
+    const ef = enemy.faction || {};
+    const hasEnemy = !!ef.name;
 
-      const subline =
-        st === "hospital" ? "In hospital" : `Last action: ${mins}`;
+    $("rt-enemy-wrap").style.display = hasEnemy ? "block" : "none";
+    $("rt-them-title").textContent = hasEnemy
+      ? `${(ef.tag ? `[${ef.tag}] ` : "")}${ef.name} (ID: ${ef.id || "—"})`
+      : "Waiting for opponent id…";
 
-      if (membersWrap) {
-        const el = document.createElement("div");
-        el.className = "m";
-        el.innerHTML = `
-          <div class="left">
-            <div class="dot ${esc(st)}"></div>
-            <div style="min-width:0;">
-              <div class="name">${esc(r.name || r.id || "Unknown")}</div>
-              <div class="meta" style="text-align:left;">${esc(subline)}</div>
-            </div>
-          </div>
-          <div class="meta">${label}</div>
-        `;
-        membersWrap.appendChild(el);
-      }
-    }
+    if (hasEnemy) {
+      const them = split(enemy.rows || []);
+      $("rt-them-online-count").textContent = String(them.online.length);
+      $("rt-them-idle-count").textContent = String(them.idle.length);
+      $("rt-them-hosp-count").textContent = String(them.hosp.length);
+      $("rt-them-offline-count").textContent = String(them.offline.length);
 
-    if (data.last_error && errBox) {
-      errBox.style.display = "block";
-      errBox.textContent = "Last error:\n" + JSON.stringify(data.last_error, null, 2);
+      setList($("rt-them-online"), them.online, "online", "No enemy online right now.");
+      setList($("rt-them-idle"), them.idle, "idle", "No enemy idle right now.");
+      setList($("rt-them-hosp"), them.hosp, "hospital", "No enemy in hospital right now.");
+      setList($("rt-them-offline"), them.offline, "offline", "No enemy offline right now.");
     }
   }
 
-  async function loadAndRender(showToast) {
+  async function refreshState() {
+    const err = $("rt-error");
     try {
-      const data = await httpGetJson(API_STATE);
+      const data = await httpGetJson(API_STATE + `?cb=${Date.now()}`);
       render(data);
-      if (showToast) toast("✅ Refreshed");
     } catch (e) {
-      const errBox = document.getElementById("wrath-err");
-      if (errBox) {
-        errBox.style.display = "block";
-        errBox.textContent = "Failed to load /state\n" + (e?.message || e);
+      if (err) {
+        err.style.display = "block";
+        err.textContent = "Failed to load /state\n" + (e?.message || e);
       }
-      if (showToast) toast("❌ Refresh failed");
     }
   }
 
@@ -293,40 +336,70 @@
 
     const shield = document.createElement("div");
     shield.id = "wrath-shield";
-    shield.innerHTML = `<div class="icon">🛡️</div>`;
-    shield.title = "Open 7DS*: Wrath War-Bot";
+    shield.textContent = "🛡️";
+    shield.title = "Open 7DS*: Wrath War Panel";
 
     const overlay = document.createElement("div");
     overlay.id = "wrath-overlay";
     overlay.innerHTML = `
-      <div id="wrath-topbar">
-        <div id="wrath-title">
-          <div id="wrath-crest">7</div>
-          <div style="min-width:0;display:flex;flex-direction:column;gap:2px;">
-            <div class="h">7DS*: Wrath — War-Bot</div>
-            <div class="s" id="wrath-sub">Loading…</div>
-          </div>
-        </div>
-        <div id="wrath-actions">
-          <div class="wrath-btn" id="wrath-opt"><span id="wrath-opt-text">OPT IN</span></div>
-          <div class="wrath-btn" id="wrath-refresh">Refresh</div>
-          <div class="wrath-btn" id="wrath-close">Close</div>
+      <div class="topbar">
+        <div class="title">⚔ 7DS*: WRATH WAR PANEL</div>
+        <div class="meta">
+          <span id="rt-updated">Updated: —</span>
+          <span class="pill" id="rt-online">🟢 0</span>
+          <span class="pill" id="rt-idle">🟡 0</span>
+          <span class="pill" id="rt-offline">🔴 0</span>
+          <span class="pill" id="rt-hospital">🏥 0</span>
+          <span class="pill" id="rt-avail">✅ Avail: 0</span>
+
+          <!-- Keep OPT, but styled like app.py button -->
+          <span class="btn" id="rt-opt"><span id="rt-opt-text">OPT IN</span></span>
+
+          <span class="btn" id="rt-refresh">Refresh now</span>
+          <span class="btn" id="rt-close">Close</span>
         </div>
       </div>
 
-      <div id="wrath-wrap">
-        <div class="card">
-          <h2>⚔ War Status <span class="pill" id="wrath-updated">—</span></h2>
-          <div id="wrath-war"></div>
-        </div>
+      <div id="rt-error" class="err" style="display:none;"></div>
+      <div id="rt-war" class="warbox" style="display:none;"></div>
 
-        <div class="card">
-          <h2>Status <span class="pill" id="wrath-counts">—</span></h2>
-          <div class="members" id="wrath-members"></div>
-        </div>
+      <div class="section-title">
+        <div>🛡️ YOUR FACTION</div>
+        <div class="small" id="rt-you-title">—</div>
       </div>
 
-      <div id="wrath-err"></div>
+      <h2>🟢 ONLINE (0–20 mins) <span class="pill" id="rt-you-online-count">0</span></h2>
+      <div id="rt-you-online"></div>
+
+      <h2>🟡 IDLE (20–30 mins) <span class="pill" id="rt-you-idle-count">0</span></h2>
+      <div id="rt-you-idle"></div>
+
+      <h2>🏥 HOSPITAL <span class="pill" id="rt-you-hosp-count">0</span></h2>
+      <div id="rt-you-hosp"></div>
+
+      <h2>🔴 OFFLINE (30+ mins) <span class="pill" id="rt-you-offline-count">0</span></h2>
+      <div id="rt-you-offline"></div>
+
+      <div class="divider"></div>
+
+      <div class="section-title">
+        <div>🎯 ENEMY FACTION</div>
+        <div class="small" id="rt-them-title">Waiting for opponent id…</div>
+      </div>
+
+      <div id="rt-enemy-wrap" style="display:none;">
+        <h2>🟢 ENEMY ONLINE <span class="pill" id="rt-them-online-count">0</span></h2>
+        <div id="rt-them-online"></div>
+
+        <h2>🟡 ENEMY IDLE <span class="pill" id="rt-them-idle-count">0</span></h2>
+        <div id="rt-them-idle"></div>
+
+        <h2>🏥 ENEMY HOSPITAL <span class="pill" id="rt-them-hosp-count">0</span></h2>
+        <div id="rt-them-hosp"></div>
+
+        <h2>🔴 ENEMY OFFLINE <span class="pill" id="rt-them-offline-count">0</span></h2>
+        <div id="rt-them-offline"></div>
+      </div>
     `;
 
     document.body.appendChild(shield);
@@ -334,70 +407,63 @@
 
     let cachedId = null;
 
-    function syncOptUI(tornId) {
-      const optBtn = overlay.querySelector("#wrath-opt");
-      const optText = overlay.querySelector("#wrath-opt-text");
-      const on = getLocalAvail(tornId);
-      optBtn.classList.toggle("on", on);
-      optText.textContent = on ? "OPTED IN" : "OPT IN";
-    }
-
-    async function ensureIdOrWarn() {
-      cachedId = cachedId || detectTornId();
-      if (!cachedId) toast("⚠️ Couldn't detect your Torn ID yet. Open your profile/sidebar, then try OPT again.");
-      return cachedId;
-    }
-
     shield.addEventListener("click", async (e) => {
       e.preventDefault(); e.stopPropagation();
       overlay.style.display = "block";
-      const tid = await ensureIdOrWarn();
-      syncOptUI(tid || "unknown");
-      await loadAndRender(false);
+      cachedId = cachedId || detectTornId();
+      syncOptUI(cachedId || "unknown");
+      await refreshState();
     }, true);
 
-    overlay.querySelector("#wrath-close").addEventListener("click", (e) => {
+    $("rt-close").addEventListener("click", (e) => {
       e.preventDefault(); e.stopPropagation();
       overlay.style.display = "none";
     }, true);
 
-    overlay.querySelector("#wrath-refresh").addEventListener("click", async (e) => {
+    $("rt-refresh").addEventListener("click", async (e) => {
       e.preventDefault(); e.stopPropagation();
       cachedId = cachedId || detectTornId();
       syncOptUI(cachedId || "unknown");
-      await loadAndRender(true);
+      await refreshState();
     }, true);
 
-    overlay.querySelector("#wrath-opt").addEventListener("click", async (e) => {
+    $("rt-opt").addEventListener("click", async (e) => {
       e.preventDefault(); e.stopPropagation();
-      const tid = await ensureIdOrWarn();
-      if (!tid) return;
+      cachedId = cachedId || (await ensureIdOrWarn());
+      if (!cachedId) return;
 
-      const next = !getLocalAvail(tid);
-      setLocalAvail(tid, next);
-      syncOptUI(tid);
+      const next = !getLocalAvail(cachedId);
+      setLocalAvail(cachedId, next);
+      syncOptUI(cachedId);
 
       const nm = detectPlayerName();
-      const res = await postAvailability(tid, next, nm);
+      const res = await postAvailability(cachedId, next, nm);
 
-      if (res.ok) toast(next ? `✅ Opted IN (${tid})` : `✅ Opted OUT (${tid})`);
-      else {
-        setLocalAvail(tid, !next);
-        syncOptUI(tid);
-        toast("❌ Failed to update server\n" + (typeof res.body === "string" ? res.body : JSON.stringify(res.body, null, 2)));
+      if (!res.ok) {
+        // rollback
+        setLocalAvail(cachedId, !next);
+        syncOptUI(cachedId);
+        const err = $("rt-error");
+        if (err) {
+          err.style.display = "block";
+          err.textContent = "Failed to update OPT\n" +
+            (typeof res.body === "string" ? res.body : JSON.stringify(res.body, null, 2));
+        }
+      } else {
+        // refresh counts/avail quickly
+        await refreshState();
       }
     }, true);
-  }
 
-  // auto refresh while open
-  setInterval(() => {
-    const overlay = document.getElementById("wrath-overlay");
-    if (overlay && overlay.style.display === "block") loadAndRender(false);
-  }, REFRESH_MS);
+    // auto refresh while open
+    setInterval(() => {
+      if (overlay.style.display === "block") refreshState();
+    }, REFRESH_MS);
+  }
 
   ensureUI();
 
-  // Torn can re-render; retry attach
+  // Torn can re-render; re-attach if needed
   let tries = 0;
   const t = setInterval(() => {
     ensureUI();

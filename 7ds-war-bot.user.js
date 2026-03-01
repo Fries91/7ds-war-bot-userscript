@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         7DS*: Wrath War-Bot 🛡️ (Overlay + Auto ID + OPT) — FIXED REFRESH
+// @name         7DS*: Wrath War-Bot 🛡️ (Overlay + Auto ID + OPT) — Online/Idle/Offline/Hospital
 // @namespace    7ds-wrath-warbot
-// @version      6.2.1
-// @description  In-page overlay renders LIVE /state (no iframe=CSP-proof). OPT IN/OUT auto-detects your Torn ID (no editing). Token protected (666). Refresh fixed.
+// @version      6.3.0
+// @description  Overlay shows Online/Idle/Offline/Hospital from /state (no iframe=CSP-proof). OPT auto ID. Token 666.
 // @match        https://www.torn.com/*
 // @match        https://torn.com/*
 // @grant        GM_addStyle
@@ -18,18 +18,12 @@
   const BASE_URL  = "https://torn-war-bot.onrender.com";
   const API_STATE = `${BASE_URL}/state`;
   const API_AVAIL = `${BASE_URL}/api/availability`;
-
-  // ✅ Must match Render AVAIL_TOKEN
   const AVAIL_TOKEN = "666";
 
-  // UI placement
   const SHIELD_TOP = 110;
   const SHIELD_RIGHT = 12;
-
-  // Refresh
   const REFRESH_MS = 15000;
 
-  // ============= Helpers =============
   function esc(s) {
     return (s ?? "").toString().replace(/[&<>"']/g, (m) => ({
       "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
@@ -63,43 +57,35 @@
     });
   }
 
-  // ===== Auto-detect Torn ID =====
   function detectTornId() {
     try {
-      // 1) profile link: /profiles.php?XID=123456
       const a = Array.from(document.querySelectorAll('a[href*="profiles.php?XID="]'));
       for (const el of a) {
         const href = el.getAttribute("href") || "";
         const m = href.match(/profiles\.php\?XID=(\d+)/i);
         if (m) return m[1];
       }
-
-      // 2) any link containing XID=
       const any = Array.from(document.querySelectorAll('a[href*="XID="]'));
       for (const el of any) {
         const href = el.getAttribute("href") || "";
         const m = href.match(/XID=(\d+)/i);
         if (m) return m[1];
       }
-
-      // 3) html fallback
       const html = document.documentElement?.innerHTML || "";
       const mm = html.match(/profiles\.php\?XID=(\d+)/i) || html.match(/XID=(\d{3,10})/i);
       if (mm) return mm[1];
     } catch (_) {}
-
     return null;
   }
 
-  // ===== Local opt flag per-ID =====
-  function availKey(tornId) {
-    return `wrath_avail_${tornId || "unknown"}`;
-  }
-  function setLocalAvail(tornId, val) {
-    GM_setValue(availKey(tornId), !!val);
-  }
-  function getLocalAvail(tornId) {
-    return !!GM_getValue(availKey(tornId), false);
+  function availKey(tornId) { return `wrath_avail_${tornId || "unknown"}`; }
+  function setLocalAvail(tornId, val) { GM_setValue(availKey(tornId), !!val); }
+  function getLocalAvail(tornId) { return !!GM_getValue(availKey(tornId), false); }
+
+  function detectPlayerName() {
+    const t = (document.title || "").trim();
+    if (t && t.length <= 60) return t.replace(/\s+\-\s+Torn.*$/i, "").trim();
+    return "";
   }
 
   function postAvailability(tornId, available, name) {
@@ -107,15 +93,8 @@
       GM_xmlhttpRequest({
         method: "POST",
         url: API_AVAIL + `?token=${encodeURIComponent(AVAIL_TOKEN)}`,
-        headers: {
-          "Content-Type": "application/json",
-          "X-Token": AVAIL_TOKEN
-        },
-        data: JSON.stringify({
-          torn_id: String(tornId || ""),
-          available: !!available,
-          name: name || ""
-        }),
+        headers: { "Content-Type": "application/json", "X-Token": AVAIL_TOKEN },
+        data: JSON.stringify({ torn_id: String(tornId || ""), available: !!available, name: name || "" }),
         onload: (r) => {
           let body = r.responseText;
           try { body = JSON.parse(body || "{}"); } catch {}
@@ -126,15 +105,7 @@
     });
   }
 
-  function detectPlayerName() {
-    const t = (document.title || "").trim();
-    if (t && t.length <= 60) return t.replace(/\s+\-\s+Torn.*$/i, "").trim();
-    return "";
-  }
-
-  // ============= Styles (no background) =============
   GM_addStyle(`
-    /* Force overlay clicks to work on Torn */
     #wrath-overlay, #wrath-overlay * { pointer-events: auto !important; }
 
     #wrath-shield{
@@ -212,6 +183,7 @@
     .dot.online{ background:#2cff6f; }
     .dot.idle{ background:#ffcc00; }
     .dot.offline{ background:#ff4444; }
+    .dot.hospital{ background:#b46bff; }
     .name{ font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:56vw; }
     .meta{ font-size:11px; opacity:.85; text-align:right; white-space:nowrap; }
 
@@ -234,13 +206,9 @@
     #wrath-toast.show{ opacity:1; }
   `);
 
-  // ============= Render =============
   function render(data) {
     const errBox = document.getElementById("wrath-err");
-    if (errBox) {
-      errBox.style.display = "none";
-      errBox.textContent = "";
-    }
+    if (errBox) { errBox.style.display = "none"; errBox.textContent = ""; }
 
     const f = data.faction || {};
     const tag = f.tag ? `[${f.tag}] ` : "";
@@ -262,18 +230,23 @@
     }
 
     const rows = data.rows || [];
-    let online = 0, idle = 0, offline = 0;
+    const c = data.counts || {};
+    const counts = document.getElementById("wrath-counts");
+    if (counts) {
+      counts.textContent =
+        `🟢 ${c.online ?? 0}  🟡 ${c.idle ?? 0}  🔴 ${c.offline ?? 0}  🏥 ${c.hospital ?? 0}`;
+    }
 
     const membersWrap = document.getElementById("wrath-members");
     if (membersWrap) membersWrap.innerHTML = "";
 
     for (const r of rows) {
       const st = r.status || "offline";
-      if (st === "online") online++;
-      else if (st === "idle") idle++;
-      else offline++;
-
       const mins = (typeof r.minutes === "number") ? `${r.minutes}m` : "—";
+      const label =
+        st === "hospital" ? "HOSPITAL" :
+        st === "online" ? "ONLINE" :
+        st === "idle" ? "IDLE" : "OFFLINE";
 
       if (membersWrap) {
         const el = document.createElement("div");
@@ -283,17 +256,16 @@
             <div class="dot ${esc(st)}"></div>
             <div style="min-width:0;">
               <div class="name">${esc(r.name || r.id || "Unknown")}</div>
-              <div class="meta" style="text-align:left;">Last action: ${esc(mins)}</div>
+              <div class="meta" style="text-align:left;">
+                ${st === "hospital" ? "In hospital" : ("Last action: " + esc(mins))}
+              </div>
             </div>
           </div>
-          <div class="meta">${esc(st.toUpperCase())}</div>
+          <div class="meta">${label}</div>
         `;
         membersWrap.appendChild(el);
       }
     }
-
-    const counts = document.getElementById("wrath-counts");
-    if (counts) counts.textContent = `🟢 ${online}  🟡 ${idle}  🔴 ${offline}`;
 
     if (data.last_error && errBox) {
       errBox.style.display = "block";
@@ -316,7 +288,6 @@
     }
   }
 
-  // ============= UI =============
   function ensureUI() {
     if (document.getElementById("wrath-shield")) return;
 
@@ -350,7 +321,7 @@
         </div>
 
         <div class="card">
-          <h2>🟢 Online / 🟡 Idle / 🔴 Offline <span class="pill" id="wrath-counts">—</span></h2>
+          <h2>🟢/🟡/🔴/🏥 Status <span class="pill" id="wrath-counts">—</span></h2>
           <div class="members" id="wrath-members"></div>
         </div>
       </div>
@@ -364,11 +335,8 @@
     let cachedId = null;
 
     async function ensureIdOrWarn() {
-      if (cachedId) return cachedId;
-      cachedId = detectTornId();
-      if (!cachedId) {
-        toast("⚠️ Couldn't detect your Torn ID yet.\nOpen your profile / sidebar then press Refresh.");
-      }
+      cachedId = cachedId || detectTornId();
+      if (!cachedId) toast("⚠️ Couldn't detect your Torn ID yet. Open your profile/sidebar, then try OPT again.");
       return cachedId;
     }
 
@@ -380,38 +348,28 @@
       optText.textContent = on ? "OPTED IN" : "OPT IN";
     }
 
-    // Open overlay
     shield.addEventListener("click", async (e) => {
-      e.preventDefault();
-      e.stopPropagation();
+      e.preventDefault(); e.stopPropagation();
       overlay.style.display = "block";
       const tid = await ensureIdOrWarn();
       syncOptUI(tid || "unknown");
       await loadAndRender(false);
     }, true);
 
-    // Close (FIXED)
     overlay.querySelector("#wrath-close").addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
+      e.preventDefault(); e.stopPropagation();
       overlay.style.display = "none";
     }, true);
 
-    // Refresh (FIXED)
     overlay.querySelector("#wrath-refresh").addEventListener("click", async (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      cachedId = cachedId || detectTornId(); // try again each refresh
-      const tid = cachedId || "unknown";
-      syncOptUI(tid);
+      e.preventDefault(); e.stopPropagation();
+      cachedId = cachedId || detectTornId();
+      syncOptUI(cachedId || "unknown");
       await loadAndRender(true);
     }, true);
 
-    // OPT toggle
     overlay.querySelector("#wrath-opt").addEventListener("click", async (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-
+      e.preventDefault(); e.stopPropagation();
       const tid = await ensureIdOrWarn();
       if (!tid) return;
 
@@ -431,14 +389,13 @@
     }, true);
   }
 
-  // Auto refresh while open
   setInterval(() => {
     const overlay = document.getElementById("wrath-overlay");
     if (overlay && overlay.style.display === "block") loadAndRender(false);
   }, REFRESH_MS);
 
-  // Boot + re-attach if Torn redraws
   ensureUI();
+
   let tries = 0;
   const t = setInterval(() => {
     ensureUI();

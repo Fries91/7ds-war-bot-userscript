@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         7DS*: Wrath War-Bot 🛡️
 // @namespace    https://github.com/Fries91/7ds-war-bot-userscript
-// @version      2.3.7
-// @description  Shield overlay + BIG toggle Opt button (CHAIN SITTER ONLY) + iframe fallback + draggable shield (tap/click opens)
+// @version      2.3.8
+// @description  Shield overlay + BIG toggle Opt button (CHAIN SITTER ONLY) + iframe fallback + draggable shield (tap/click opens) + iframe-block detection
 // @match        https://www.torn.com/*
 // @match        https://torn.com/*
 // @downloadURL  https://raw.githubusercontent.com/Fries91/7ds-war-bot-userscript/main/7ds-war-bot.user.js
@@ -15,8 +15,9 @@
 (function () {
   'use strict';
 
-  const PANEL_URL = 'https://torn-war-bot.onrender.com/?embed=1';
-  const API_URL   = 'https://torn-war-bot.onrender.com/api/availability';
+  const PANEL_ORIGIN = 'https://torn-war-bot.onrender.com';
+  const PANEL_URL    = PANEL_ORIGIN + '/?embed=1';
+  const API_URL      = PANEL_ORIGIN + '/api/availability';
 
   // Chain sitter Torn IDs
   const CHAIN_SITTER_IDS = ['1234'];
@@ -50,12 +51,14 @@
     let tornId = (getStored('warbot_torn_id', '') || '').trim();
     let name   = (getStored('warbot_name', '') || '').trim();
 
+    // try Torn globals (best-effort)
     try {
       if (!tornId && window.user && (window.user.player_id || window.user.ID)) {
         tornId = String(window.user.player_id || window.user.ID);
       }
     } catch (e) {}
 
+    // best-effort scan for XID in HTML (may not always exist)
     if (!tornId) {
       try {
         const m = document.body && document.body.innerHTML && document.body.innerHTML.match(/XID=(\d{3,})/);
@@ -63,11 +66,13 @@
       } catch (e) {}
     }
 
+    // name (best-effort)
     if (!name) {
       try {
-        const el = document.querySelector('.user-name') ||
-                   document.querySelector('[class*="userName"]') ||
-                   document.querySelector('[class*="username"]');
+        const el =
+          document.querySelector('.user-name') ||
+          document.querySelector('[class*="userName"]') ||
+          document.querySelector('[class*="username"]');
         if (el) name = (el.textContent || '').trim();
       } catch (e) {}
     }
@@ -276,7 +281,7 @@
       box-shadow: 0 10px 30px rgba(0,0,0,0.45);
       user-select: none;
       -webkit-user-select: none;
-      touch-action: none; /* keeps iOS from scrolling while dragging */
+      touch-action: none;
     `);
 
     // Position
@@ -296,7 +301,7 @@
     let overlay = null;
 
     function openNewTab() {
-      window.open(PANEL_URL.replace('?embed=1',''), '_blank', 'noopener,noreferrer');
+      window.open(PANEL_ORIGIN + '/', '_blank', 'noopener,noreferrer');
     }
 
     function closeOverlay() {
@@ -415,27 +420,58 @@
         background: #0b0b0f;
       `);
 
+      // BIG status message that stays until iframe loads successfully
       const msg = document.createElement('div');
-      msg.textContent = 'Loading… If it ever shows “Ask the owner”, press “Open Panel”.';
+      msg.innerHTML = `
+        <div style="font-weight:900; margin-bottom:6px;">Loading panel…</div>
+        <div style="opacity:0.9; line-height:1.35;">
+          If this stays blank, Torn is blocking the iframe on this page/device.<br/>
+          Use <b>↗ Open Panel</b> to view it in a normal tab.
+        </div>
+      `;
       css(msg, `
         position: absolute;
         top: 12px;
         left: 12px;
         right: 12px;
-        z-index: 2;
-        padding: 10px 12px;
+        z-index: 3;
+        padding: 12px 12px;
         border: 1px solid #2a2a3a;
-        border-radius: 10px;
-        background: rgba(21,21,33,0.92);
+        border-radius: 12px;
+        background: rgba(21,21,33,0.96);
         color: #fff;
         font-size: 12px;
-        opacity: 0.9;
+      `);
+
+      // If iframe is blocked, we keep msg and also show a warning after timeout
+      const warn = document.createElement('div');
+      warn.textContent = '';
+      css(warn, `
+        position: absolute;
+        left: 12px;
+        right: 12px;
+        bottom: 12px;
+        z-index: 3;
+        padding: 10px 12px;
+        border: 1px solid #5b3a3a;
+        border-radius: 12px;
+        background: rgba(60,10,10,0.55);
+        color: #ffd2d2;
+        font-size: 12px;
+        display: none;
       `);
 
       const iframe = document.createElement('iframe');
+
+      // cache-buster
       iframe.src = PANEL_URL + (PANEL_URL.includes('?') ? '&' : '?') + 'cb=' + Date.now();
+
+      // These do NOT bypass Torn CSP, but they help with some Safari behavior
       iframe.setAttribute('referrerpolicy', 'no-referrer');
       iframe.setAttribute('loading', 'eager');
+      iframe.setAttribute('allow', 'fullscreen');
+      iframe.setAttribute('sandbox', 'allow-scripts allow-forms allow-same-origin allow-popups');
+
       css(iframe, `
         position: absolute;
         inset: 0;
@@ -445,7 +481,22 @@
         background: #0b0b0f;
       `);
 
-      setTimeout(() => { if (msg) msg.style.display = 'none'; }, 6000);
+      let loaded = false;
+
+      iframe.addEventListener('load', () => {
+        loaded = true;
+        // hide message only when iframe actually loads
+        msg.style.display = 'none';
+        warn.style.display = 'none';
+      });
+
+      // Timeout warning: likely blocked
+      const t = setTimeout(() => {
+        if (loaded) return;
+        warn.textContent =
+          '⚠ Iframe looks blocked here (Torn security policy). Tap ↗ Open Panel to view it.';
+        warn.style.display = 'block';
+      }, 3500);
 
       overlay.addEventListener('click', (e) => {
         if (e.target === overlay) closeOverlay();
@@ -453,15 +504,22 @@
 
       iframeWrap.appendChild(iframe);
       iframeWrap.appendChild(msg);
+      iframeWrap.appendChild(warn);
 
       box.appendChild(bar);
       box.appendChild(iframeWrap);
       overlay.appendChild(box);
       document.body.appendChild(overlay);
+
+      // cleanup timer if closed quickly
+      const oldClose = closeOverlay;
+      closeOverlay = function () {
+        try { clearTimeout(t); } catch (e) {}
+        oldClose();
+      };
     }
 
-    // ✅ Tap/click opens, but dragging doesn't accidentally open:
-    // We open on "pointerup" if it was NOT dragged.
+    // Tap/click opens, but dragging doesn't accidentally open
     shield.addEventListener('pointerup', (e) => {
       e.preventDefault();
       if (shield._warbotWasDragged && shield._warbotWasDragged()) {
@@ -471,7 +529,7 @@
       openOverlay();
     }, { capture: true });
 
-    // Fallback for older browsers
+    // Fallback
     shield.addEventListener('click', (e) => {
       e.preventDefault();
       if (shield._warbotWasDragged && shield._warbotWasDragged()) {

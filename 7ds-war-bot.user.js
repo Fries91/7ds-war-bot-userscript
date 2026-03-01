@@ -1,10 +1,12 @@
 // ==UserScript==
 // @name         7DS*: Wrath War-Bot 🛡️
-// @namespace    7ds-wrath-warbot
+// @namespace    https://github.com/Fries91/7ds-war-bot-userscript
 // @version      2.2.1
 // @description  Shield overlay + BIG toggle Opt button (CHAIN SITTER ONLY) + iframe fallback
 // @match        https://www.torn.com/*
 // @match        https://torn.com/*
+// @downloadURL  https://raw.githubusercontent.com/Fries91/7ds-war-bot-userscript/main/7ds-war-bot.user.js
+// @updateURL    https://raw.githubusercontent.com/Fries91/7ds-war-bot-userscript/main/7ds-war-bot.user.js
 // @grant        GM_setValue
 // @grant        GM_getValue
 // ==/UserScript==
@@ -15,7 +17,8 @@
   const PANEL_URL = 'https://torn-war-bot.onrender.com/?embed=1';
   const API_URL   = 'https://torn-war-bot.onrender.com/api/availability';
 
-  // Chain sitter Torn IDs
+  // ✅ Chain sitter Torn IDs (comma-separated)
+  // Example: const CHAIN_SITTER_IDS = ['1234','5678'];
   const CHAIN_SITTER_IDS = ['1234'];
 
   // Optional: must match Render AVAIL_TOKEN if you use one
@@ -110,6 +113,9 @@
 
   function css(el, style) { el.style.cssText = style; return el; }
 
+  // Avoid duplicate inject
+  if (document.getElementById('warbot_shield')) return;
+
   const shield = document.createElement('div');
   shield.textContent = '🛡️';
   shield.id = 'warbot_shield';
@@ -125,10 +131,7 @@
     border-radius: 12px;
     padding: 8px 10px;
   `);
-
-  if (!document.getElementById('warbot_shield')) {
-    document.body.appendChild(shield);
-  }
+  document.body.appendChild(shield);
 
   let overlay = null;
 
@@ -180,10 +183,8 @@
     title.style.flex = '1';
     bar.appendChild(title);
 
-    let toggleBtn = null;
-
     if (chainSitter) {
-      toggleBtn = document.createElement('button');
+      const toggleBtn = document.createElement('button');
       css(toggleBtn, `
         padding:14px 16px;
         font-size:14px;

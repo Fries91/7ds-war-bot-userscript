@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         7DS*: Wrath War-Bot 🛡️
 // @namespace    https://github.com/Fries91/7ds-war-bot-userscript
-// @version      2.3.6
-// @description  Shield overlay + BIG toggle Opt button (CHAIN SITTER ONLY) + iframe fallback + draggable shield
+// @version      2.3.7
+// @description  Shield overlay + BIG toggle Opt button (CHAIN SITTER ONLY) + iframe fallback + draggable shield (tap/click opens)
 // @match        https://www.torn.com/*
 // @match        https://torn.com/*
 // @downloadURL  https://raw.githubusercontent.com/Fries91/7ds-war-bot-userscript/main/7ds-war-bot.user.js
@@ -29,7 +29,7 @@
   const DEFAULT_RIGHT = 12;
 
   // Storage keys
-  const POS_KEY = 'warbot_shield_pos_v1';
+  const POS_KEY = 'warbot_shield_pos_v2';
 
   function getStored(key, fallback = '') {
     try { return GM_getValue(key, fallback); }
@@ -46,24 +46,16 @@
   }
 
   // ========= identity (no prompts) =========
-  // We only need an ID to enforce "chain sitter only".
-  // Tries common Torn globals/DOM. If it can't find it, Opt button just won't show.
   function getMyIdentity() {
-    let tornId = '';
-    let name = '';
+    let tornId = (getStored('warbot_torn_id', '') || '').trim();
+    let name   = (getStored('warbot_name', '') || '').trim();
 
-    // cached
-    tornId = (getStored('warbot_torn_id', '') || '').trim();
-    name   = (getStored('warbot_name', '') || '').trim();
-
-    // try Torn globals
     try {
       if (!tornId && window.user && (window.user.player_id || window.user.ID)) {
         tornId = String(window.user.player_id || window.user.ID);
       }
     } catch (e) {}
 
-    // try any XID reference in page source (best-effort)
     if (!tornId) {
       try {
         const m = document.body && document.body.innerHTML && document.body.innerHTML.match(/XID=(\d{3,})/);
@@ -71,7 +63,6 @@
       } catch (e) {}
     }
 
-    // name (best-effort)
     if (!name) {
       try {
         const el = document.querySelector('.user-name') ||
@@ -170,7 +161,6 @@
   }
 
   function applyPos(shield, x, y) {
-    // x,y are "left/top" in px
     shield.style.left = `${x}px`;
     shield.style.top  = `${y}px`;
     shield.style.right = 'auto';
@@ -178,25 +168,25 @@
   }
 
   function makeDraggable(shield) {
-    const start = { x: 0, y: 0, sx: 0, sy: 0, dragging: false, moved: false };
+    const st = { x: 0, y: 0, sx: 0, sy: 0, dragging: false, moved: false };
 
     function onDown(clientX, clientY) {
       const rect = shield.getBoundingClientRect();
-      start.sx = rect.left;
-      start.sy = rect.top;
-      start.x = clientX;
-      start.y = clientY;
-      start.dragging = true;
-      start.moved = false;
+      st.sx = rect.left;
+      st.sy = rect.top;
+      st.x = clientX;
+      st.y = clientY;
+      st.dragging = true;
+      st.moved = false;
       shield.style.transition = 'none';
     }
 
     function onMove(clientX, clientY) {
-      if (!start.dragging) return;
-      const dx = clientX - start.x;
-      const dy = clientY - start.y;
+      if (!st.dragging) return;
+      const dx = clientX - st.x;
+      const dy = clientY - st.y;
 
-      if (Math.abs(dx) + Math.abs(dy) > 6) start.moved = true;
+      if (Math.abs(dx) + Math.abs(dy) > 8) st.moved = true; // drag threshold
 
       const rect = shield.getBoundingClientRect();
       const w = rect.width;
@@ -205,27 +195,24 @@
       const maxX = window.innerWidth  - w - 2;
       const maxY = window.innerHeight - h - 2;
 
-      const nx = clamp(start.sx + dx, 2, maxX);
-      const ny = clamp(start.sy + dy, 2, maxY);
+      const nx = clamp(st.sx + dx, 2, maxX);
+      const ny = clamp(st.sy + dy, 2, maxY);
 
       applyPos(shield, nx, ny);
     }
 
     function onUp() {
-      if (!start.dragging) return;
-      start.dragging = false;
+      if (!st.dragging) return;
+      st.dragging = false;
 
-      // snap save
       const rect = shield.getBoundingClientRect();
       savePos(rect.left, rect.top);
 
-      // restore transition (optional)
       shield.style.transition = '';
     }
 
-    // Mouse
+    // Mouse drag
     shield.addEventListener('mousedown', (e) => {
-      // left click only
       if (e.button !== 0) return;
       e.preventDefault();
       onDown(e.clientX, e.clientY);
@@ -242,17 +229,16 @@
       document.addEventListener('mouseup', mu, true);
     }, true);
 
-    // Touch
+    // Touch drag
     shield.addEventListener('touchstart', (e) => {
       if (!e.touches || !e.touches[0]) return;
       const t = e.touches[0];
       onDown(t.clientX, t.clientY);
-      // prevent scroll while dragging
       e.preventDefault();
     }, { passive: false });
 
     shield.addEventListener('touchmove', (e) => {
-      if (!start.dragging || !e.touches || !e.touches[0]) return;
+      if (!st.dragging || !e.touches || !e.touches[0]) return;
       const t = e.touches[0];
       onMove(t.clientX, t.clientY);
       e.preventDefault();
@@ -263,13 +249,12 @@
       e.preventDefault();
     }, { passive: false });
 
-    // So click-to-open doesn't fire after a drag
-    shield._warbotWasDragged = () => start.moved;
-    shield._warbotResetDragged = () => { start.moved = false; };
+    // expose moved flag so we can allow tap-to-open
+    shield._warbotWasDragged = () => st.moved;
+    shield._warbotResetDragged = () => { st.moved = false; };
   }
 
   function inject() {
-    // Shield button
     const shield = document.createElement('div');
     shield.textContent = '🛡️';
     shield.id = 'warbot_shield';
@@ -291,16 +276,14 @@
       box-shadow: 0 10px 30px rgba(0,0,0,0.45);
       user-select: none;
       -webkit-user-select: none;
-      touch-action: none; /* important for iOS drag */
+      touch-action: none; /* keeps iOS from scrolling while dragging */
     `);
 
-    // Default position (right/top) unless saved
-    // We convert "right/top" default to "left/top" for drag system
+    // Position
     const saved = loadPos();
     if (saved) {
       applyPos(shield, saved.x, saved.y);
     } else {
-      // compute default left from right
       const approxWidth = 44;
       const left = Math.max(2, window.innerWidth - approxWidth - DEFAULT_RIGHT);
       applyPos(shield, left, DEFAULT_TOP);
@@ -308,7 +291,6 @@
     }
 
     document.body.appendChild(shield);
-
     makeDraggable(shield);
 
     let overlay = null;
@@ -324,29 +306,21 @@
     }
 
     function openOverlay() {
-      // If last interaction was a drag, do not open
-      if (shield._warbotWasDragged && shield._warbotWasDragged()) {
-        if (shield._warbotResetDragged) shield._warbotResetDragged();
-        return;
-      }
-
-      // Toggle behavior: click shield again closes
       if (overlay) { closeOverlay(); return; }
 
       const { tornId } = getMyIdentity();
       const chainSitter = tornId ? isChainSitter(tornId) : false;
 
-      // Backdrop
       overlay = document.createElement('div');
       css(overlay, `
         position: fixed;
-        top:0;left:0;right:0;bottom:0;
-        width:100vw;height:100vh;
+        inset: 0;
+        width: 100vw;
+        height: 100vh;
         background: rgba(0,0,0,0.60);
         z-index: 2147483646;
       `);
 
-      // Panel container
       const box = document.createElement('div');
       css(box, `
         position: absolute;
@@ -364,7 +338,6 @@
         box-shadow: 0 20px 70px rgba(0,0,0,0.75);
       `);
 
-      // Top bar
       const bar = document.createElement('div');
       css(bar, `
         padding: 12px;
@@ -382,7 +355,6 @@
       title.style.flex = '1';
       bar.appendChild(title);
 
-      // Chain sitter toggle
       if (chainSitter) {
         const toggleBtn = document.createElement('button');
         css(toggleBtn, `
@@ -408,7 +380,6 @@
         bar.appendChild(toggleBtn);
       }
 
-      // Open panel in new tab
       const openBtn = document.createElement('button');
       openBtn.textContent = '↗ Open Panel';
       css(openBtn, `
@@ -423,7 +394,6 @@
       openBtn.onclick = openNewTab;
       bar.appendChild(openBtn);
 
-      // Close button
       const close = document.createElement('button');
       close.textContent = '✖';
       css(close, `
@@ -438,7 +408,6 @@
       close.onclick = closeOverlay;
       bar.appendChild(close);
 
-      // Iframe wrapper
       const iframeWrap = document.createElement('div');
       css(iframeWrap, `
         flex: 1;
@@ -446,7 +415,6 @@
         background: #0b0b0f;
       `);
 
-      // Loading hint
       const msg = document.createElement('div');
       msg.textContent = 'Loading… If it ever shows “Ask the owner”, press “Open Panel”.';
       css(msg, `
@@ -464,14 +432,13 @@
         opacity: 0.9;
       `);
 
-      // Iframe (cache-busted)
       const iframe = document.createElement('iframe');
       iframe.src = PANEL_URL + (PANEL_URL.includes('?') ? '&' : '?') + 'cb=' + Date.now();
       iframe.setAttribute('referrerpolicy', 'no-referrer');
       iframe.setAttribute('loading', 'eager');
       css(iframe, `
         position: absolute;
-        top: 0; left: 0;
+        inset: 0;
         width: 100%;
         height: 100%;
         border: 0;
@@ -480,7 +447,6 @@
 
       setTimeout(() => { if (msg) msg.style.display = 'none'; }, 6000);
 
-      // Click outside closes
       overlay.addEventListener('click', (e) => {
         if (e.target === overlay) closeOverlay();
       });
@@ -494,9 +460,24 @@
       document.body.appendChild(overlay);
     }
 
-    // IMPORTANT: click handler should not interfere with dragging
+    // ✅ Tap/click opens, but dragging doesn't accidentally open:
+    // We open on "pointerup" if it was NOT dragged.
+    shield.addEventListener('pointerup', (e) => {
+      e.preventDefault();
+      if (shield._warbotWasDragged && shield._warbotWasDragged()) {
+        if (shield._warbotResetDragged) shield._warbotResetDragged();
+        return;
+      }
+      openOverlay();
+    }, { capture: true });
+
+    // Fallback for older browsers
     shield.addEventListener('click', (e) => {
       e.preventDefault();
+      if (shield._warbotWasDragged && shield._warbotWasDragged()) {
+        if (shield._warbotResetDragged) shield._warbotResetDragged();
+        return;
+      }
       openOverlay();
     }, true);
   }

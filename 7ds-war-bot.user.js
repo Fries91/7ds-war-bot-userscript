@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         7DS*: Wrath War-Bot 🛡️ (Overlay + Auto ID + OPT)
+// @name         7DS*: Wrath War-Bot 🛡️ (Overlay + Auto ID + OPT) — FIXED REFRESH
 // @namespace    7ds-wrath-warbot
-// @version      6.2.0
-// @description  In-page overlay renders LIVE /state (no iframe=CSP-proof). OPT IN/OUT auto-detects your Torn ID (no editing). Token protected (666).
+// @version      6.2.1
+// @description  In-page overlay renders LIVE /state (no iframe=CSP-proof). OPT IN/OUT auto-detects your Torn ID (no editing). Token protected (666). Refresh fixed.
 // @match        https://www.torn.com/*
 // @match        https://torn.com/*
 // @grant        GM_addStyle
@@ -65,7 +65,6 @@
 
   // ===== Auto-detect Torn ID =====
   function detectTornId() {
-    // Try common Torn patterns without relying on one selector.
     try {
       // 1) profile link: /profiles.php?XID=123456
       const a = Array.from(document.querySelectorAll('a[href*="profiles.php?XID="]'));
@@ -83,7 +82,7 @@
         if (m) return m[1];
       }
 
-      // 3) body html fallback (last resort): look for XID=
+      // 3) html fallback
       const html = document.documentElement?.innerHTML || "";
       const mm = html.match(/profiles\.php\?XID=(\d+)/i) || html.match(/XID=(\d{3,10})/i);
       if (mm) return mm[1];
@@ -127,17 +126,17 @@
     });
   }
 
-  // ===== Optional: try to detect name from DOM =====
   function detectPlayerName() {
-    // Best effort: use document title
-    // Example titles vary; keep it safe
     const t = (document.title || "").trim();
-    if (t && t.length <= 40) return t.replace(/\s+\-\s+Torn.*$/i, "").trim();
+    if (t && t.length <= 60) return t.replace(/\s+\-\s+Torn.*$/i, "").trim();
     return "";
   }
 
   // ============= Styles (no background) =============
   GM_addStyle(`
+    /* Force overlay clicks to work on Torn */
+    #wrath-overlay, #wrath-overlay * { pointer-events: auto !important; }
+
     #wrath-shield{
       position:fixed; top:${SHIELD_TOP}px; right:${SHIELD_RIGHT}px;
       z-index:2147483647; width:48px; height:48px; border-radius:14px;
@@ -235,6 +234,88 @@
     #wrath-toast.show{ opacity:1; }
   `);
 
+  // ============= Render =============
+  function render(data) {
+    const errBox = document.getElementById("wrath-err");
+    if (errBox) {
+      errBox.style.display = "none";
+      errBox.textContent = "";
+    }
+
+    const f = data.faction || {};
+    const tag = f.tag ? `[${f.tag}] ` : "";
+    const sub = document.getElementById("wrath-sub");
+    if (sub) sub.textContent = `${tag}${f.name || "Faction"}`;
+
+    const upd = document.getElementById("wrath-updated");
+    if (upd) upd.textContent = data.updated_at ? "Updated" : "Waiting";
+
+    const w = data.war || {};
+    const warEl = document.getElementById("wrath-war");
+    if (warEl) {
+      warEl.innerHTML = `
+        <div class="row"><div class="k">Opponent</div><div class="v">${esc(w.opponent || "No active war")}</div></div>
+        <div class="row"><div class="k">Target</div><div class="v">${esc(w.target ?? "—")}</div></div>
+        <div class="row"><div class="k">Your Score</div><div class="v">${esc(w.score ?? "—")}</div></div>
+        <div class="row"><div class="k">Enemy Score</div><div class="v">${esc(w.enemy_score ?? "—")}</div></div>
+      `;
+    }
+
+    const rows = data.rows || [];
+    let online = 0, idle = 0, offline = 0;
+
+    const membersWrap = document.getElementById("wrath-members");
+    if (membersWrap) membersWrap.innerHTML = "";
+
+    for (const r of rows) {
+      const st = r.status || "offline";
+      if (st === "online") online++;
+      else if (st === "idle") idle++;
+      else offline++;
+
+      const mins = (typeof r.minutes === "number") ? `${r.minutes}m` : "—";
+
+      if (membersWrap) {
+        const el = document.createElement("div");
+        el.className = "m";
+        el.innerHTML = `
+          <div class="left">
+            <div class="dot ${esc(st)}"></div>
+            <div style="min-width:0;">
+              <div class="name">${esc(r.name || r.id || "Unknown")}</div>
+              <div class="meta" style="text-align:left;">Last action: ${esc(mins)}</div>
+            </div>
+          </div>
+          <div class="meta">${esc(st.toUpperCase())}</div>
+        `;
+        membersWrap.appendChild(el);
+      }
+    }
+
+    const counts = document.getElementById("wrath-counts");
+    if (counts) counts.textContent = `🟢 ${online}  🟡 ${idle}  🔴 ${offline}`;
+
+    if (data.last_error && errBox) {
+      errBox.style.display = "block";
+      errBox.textContent = "Last error:\n" + JSON.stringify(data.last_error, null, 2);
+    }
+  }
+
+  async function loadAndRender(showToast) {
+    try {
+      const data = await httpGetJson(API_STATE);
+      render(data);
+      if (showToast) toast("✅ Refreshed");
+    } catch (e) {
+      const errBox = document.getElementById("wrath-err");
+      if (errBox) {
+        errBox.style.display = "block";
+        errBox.textContent = "Failed to load /state\n" + (e?.message || e);
+      }
+      if (showToast) toast("❌ Refresh failed");
+    }
+  }
+
   // ============= UI =============
   function ensureUI() {
     if (document.getElementById("wrath-shield")) return;
@@ -286,7 +367,7 @@
       if (cachedId) return cachedId;
       cachedId = detectTornId();
       if (!cachedId) {
-        toast("⚠️ Couldn't detect your Torn ID yet. Open your profile/side menu then try again.");
+        toast("⚠️ Couldn't detect your Torn ID yet.\nOpen your profile / sidebar then press Refresh.");
       }
       return cachedId;
     }
@@ -299,22 +380,38 @@
       optText.textContent = on ? "OPTED IN" : "OPT IN";
     }
 
-    shield.addEventListener("click", async () => {
+    // Open overlay
+    shield.addEventListener("click", async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
       overlay.style.display = "block";
       const tid = await ensureIdOrWarn();
       syncOptUI(tid || "unknown");
-      loadAndRender();
-    });
+      await loadAndRender(false);
+    }, true);
 
-    overlay.querySelector("#wrath-close").addEventListener("click", () => {
+    // Close (FIXED)
+    overlay.querySelector("#wrath-close").addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
       overlay.style.display = "none";
-    });
+    }, true);
 
-    overlay.querySelector("#wrath-refresh").addEventListener("click", () => {
-      loadAndRender(true);
-    });
+    // Refresh (FIXED)
+    overlay.querySelector("#wrath-refresh").addEventListener("click", async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      cachedId = cachedId || detectTornId(); // try again each refresh
+      const tid = cachedId || "unknown";
+      syncOptUI(tid);
+      await loadAndRender(true);
+    }, true);
 
-    overlay.querySelector("#wrath-opt").addEventListener("click", async () => {
+    // OPT toggle
+    overlay.querySelector("#wrath-opt").addEventListener("click", async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+
       const tid = await ensureIdOrWarn();
       if (!tid) return;
 
@@ -331,92 +428,21 @@
         syncOptUI(tid);
         toast("❌ Failed to update server\n" + (typeof res.body === "string" ? res.body : JSON.stringify(res.body, null, 2)));
       }
-    });
+    }, true);
   }
 
-  // ============= Render =============
-  function render(data) {
-    const errBox = document.getElementById("wrath-err");
-    errBox.style.display = "none";
-    errBox.textContent = "";
-
-    const f = data.faction || {};
-    const tag = f.tag ? `[${f.tag}] ` : "";
-    document.getElementById("wrath-sub").textContent = `${tag}${f.name || "Faction"}`;
-
-    document.getElementById("wrath-updated").textContent = data.updated_at ? "Updated" : "Waiting";
-
-    const w = data.war || {};
-    document.getElementById("wrath-war").innerHTML = `
-      <div class="row"><div class="k">Opponent</div><div class="v">${esc(w.opponent || "No active war")}</div></div>
-      <div class="row"><div class="k">Target</div><div class="v">${esc(w.target ?? "—")}</div></div>
-      <div class="row"><div class="k">Your Score</div><div class="v">${esc(w.score ?? "—")}</div></div>
-      <div class="row"><div class="k">Enemy Score</div><div class="v">${esc(w.enemy_score ?? "—")}</div></div>
-    `;
-
-    const rows = data.rows || [];
-    let online = 0, idle = 0, offline = 0;
-
-    const membersWrap = document.getElementById("wrath-members");
-    membersWrap.innerHTML = "";
-
-    for (const r of rows) {
-      const st = r.status || "offline";
-      if (st === "online") online++;
-      else if (st === "idle") idle++;
-      else offline++;
-
-      const mins = (typeof r.minutes === "number") ? `${r.minutes}m` : "—";
-
-      const el = document.createElement("div");
-      el.className = "m";
-      el.innerHTML = `
-        <div class="left">
-          <div class="dot ${esc(st)}"></div>
-          <div style="min-width:0;">
-            <div class="name">${esc(r.name || r.id || "Unknown")}</div>
-            <div class="meta" style="text-align:left;">Last action: ${esc(mins)}</div>
-          </div>
-        </div>
-        <div class="meta">${esc(st.toUpperCase())}</div>
-      `;
-      membersWrap.appendChild(el);
-    }
-
-    document.getElementById("wrath-counts").textContent = `🟢 ${online}  🟡 ${idle}  🔴 ${offline}`;
-
-    if (data.last_error) {
-      errBox.style.display = "block";
-      errBox.textContent = "Last error:\n" + JSON.stringify(data.last_error, null, 2);
-    }
-  }
-
-  async function loadAndRender(showToast) {
-    try {
-      const data = await httpGetJson(API_STATE);
-      render(data);
-      if (showToast) toast("✅ Refreshed");
-    } catch (e) {
-      const errBox = document.getElementById("wrath-err");
-      errBox.style.display = "block";
-      errBox.textContent = "Failed to load /state\n" + (e?.message || e);
-      if (showToast) toast("❌ Refresh failed");
-    }
-  }
-
+  // Auto refresh while open
   setInterval(() => {
     const overlay = document.getElementById("wrath-overlay");
     if (overlay && overlay.style.display === "block") loadAndRender(false);
   }, REFRESH_MS);
 
-  // Boot
+  // Boot + re-attach if Torn redraws
   ensureUI();
-
-  // Torn can re-render; retry
   let tries = 0;
   const t = setInterval(() => {
     ensureUI();
     tries++;
-    if (tries >= 10) clearInterval(t);
+    if (tries >= 12) clearInterval(t);
   }, 800);
 })();

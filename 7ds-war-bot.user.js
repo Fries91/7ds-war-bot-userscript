@@ -1,310 +1,170 @@
 // ==UserScript==
-// @name         7DS*: Wrath War-Bot 🛡️ (CSP-Proof Lite + Chain Sitter Opt)
-// @namespace    7ds-wrath-warbot
-// @version      3.2.1
-// @description  Shield opens /lite in a NEW TAB (no iframe = no CSP errors). Chain Sitter opt-in toggle (token protected).
+// @name         7DS*: Wrath War-Bot Overlay (No CSP)
+// @namespace    7ds-wrath-overlay
+// @version      4.0.0
+// @description  Live War Overlay inside Torn (no iframe, no CSP errors)
 // @match        https://www.torn.com/*
 // @match        https://torn.com/*
 // @grant        GM_addStyle
-// @grant        GM_getValue
-// @grant        GM_setValue
-// @grant        GM_xmlhttpRequest
 // @connect      torn-war-bot.onrender.com
 // ==/UserScript==
 
 (function () {
   "use strict";
 
-  // =========================
-  // ✅ CONFIG
-  // =========================
-  const BASE_URL = "https://torn-war-bot.onrender.com";
-  const LITE_URL = `${BASE_URL}/lite`;
-  const API_AVAIL = `${BASE_URL}/api/availability`;
+  const API_STATE = "https://torn-war-bot.onrender.com/state";
 
-  // 🔥 Put YOUR Torn ID here (required for opt-in button + to identify you)
-  // (You told me your chain sitter id is 1234 earlier — keep it or replace it with your real one)
-  const MY_TORN_ID = "1234";
-
-  // Chain sitter Torn IDs (only these see the OPT button)
-  const CHAIN_SITTER_IDS = ["1234"];
-
-  // ✅ Token must match Render env AVAIL_TOKEN
-  const AVAIL_TOKEN = "666";
-
-  // Shield position
   const BTN_TOP = 110;
   const BTN_RIGHT = 12;
 
-  // =========================
-  // Helpers
-  // =========================
-  const isChainSitter = CHAIN_SITTER_IDS.includes(String(MY_TORN_ID));
-
-  function openLite() {
-    // ✅ No iframe. Opens in new tab. CSP-proof.
-    window.open(LITE_URL, "_blank", "noopener,noreferrer");
-  }
-
-  function setLocalAvail(val) {
-    GM_setValue("wrath_avail", !!val);
-  }
-
-  function getLocalAvail() {
-    return !!GM_getValue("wrath_avail", false);
-  }
-
-  function updateOptUI(btn) {
-    const on = getLocalAvail();
-    btn.classList.toggle("on", on);
-    btn.querySelector(".label").textContent = on ? "OPTED IN" : "OPT IN";
-    btn.querySelector(".sub").textContent = on ? "Available for chaining" : "Tap to become available";
-  }
-
-  function postAvailability(available) {
-    return new Promise((resolve) => {
-      GM_xmlhttpRequest({
-        method: "POST",
-        url: API_AVAIL + (AVAIL_TOKEN ? `?token=${encodeURIComponent(AVAIL_TOKEN)}` : ""),
-        headers: {
-          "Content-Type": "application/json",
-          ...(AVAIL_TOKEN ? { "X-Token": AVAIL_TOKEN } : {})
-        },
-        data: JSON.stringify({
-          torn_id: String(MY_TORN_ID),
-          available: !!available
-        }),
-        onload: (r) => {
-          try {
-            const j = JSON.parse(r.responseText || "{}");
-            resolve({ ok: r.status >= 200 && r.status < 300 && j.ok !== false, status: r.status, body: j });
-          } catch {
-            resolve({ ok: r.status >= 200 && r.status < 300, status: r.status, body: r.responseText });
-          }
-        },
-        onerror: () => resolve({ ok: false, status: 0, body: "network error" })
-      });
-    });
-  }
-
-  // =========================
-  // Styles (Wrath theme)
-  // =========================
+  // =====================
+  // Styles
+  // =====================
   GM_addStyle(`
-    #wrath-warbot-wrap {
+    #wrath-shield {
       position: fixed;
       top: ${BTN_TOP}px;
       right: ${BTN_RIGHT}px;
       z-index: 2147483647;
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-      user-select: none;
-      -webkit-tap-highlight-color: transparent;
-    }
-
-    /* Shield */
-    #wrath-warbot-shield {
-      width: 48px;
-      height: 48px;
-      border-radius: 14px;
-      cursor: pointer;
-
+      width: 46px;
+      height: 46px;
+      border-radius: 12px;
       display: grid;
       place-items: center;
-
-      background: radial-gradient(circle at 30% 30%, rgba(255,80,70,.30), rgba(0,0,0,.85));
-      border: 1px solid rgba(255,60,50,.55);
-      box-shadow: 0 10px 28px rgba(0,0,0,.55), 0 0 18px rgba(255,60,50,.35);
-      backdrop-filter: blur(6px);
-    }
-    #wrath-warbot-shield:hover {
-      box-shadow: 0 10px 30px rgba(0,0,0,.65), 0 0 28px rgba(255,60,50,.55);
-      transform: translateY(-1px);
-    }
-    #wrath-warbot-shield:active { transform: translateY(0px) scale(.98); }
-
-    #wrath-warbot-shield .icon {
-      font-size: 22px;
-      line-height: 1;
-      filter: drop-shadow(0 0 10px rgba(255,60,50,.55));
-    }
-
-    /* Chain sitter opt button */
-    #wrath-opt {
-      width: 190px;
-      border-radius: 16px;
-      padding: 10px 12px;
       cursor: pointer;
-
-      background: rgba(0,0,0,.72);
-      border: 1px solid rgba(255,60,50,.28);
-      box-shadow: 0 10px 26px rgba(0,0,0,.55);
-      backdrop-filter: blur(8px);
-
-      color: #fff;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+      background: radial-gradient(circle at 30% 30%, rgba(255,60,50,.35), rgba(0,0,0,.9));
+      border: 1px solid rgba(255,60,50,.6);
+      box-shadow: 0 0 20px rgba(255,60,50,.4);
+      font-size: 20px;
     }
 
-    #wrath-opt .top {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 10px;
-      margin-bottom: 4px;
-    }
-    #wrath-opt .label {
-      font-weight: 900;
-      letter-spacing: .6px;
-      font-size: 13px;
-      color: #ffcc66;
-    }
-    #wrath-opt .tag {
-      font-size: 11px;
-      padding: 3px 8px;
-      border-radius: 999px;
-      border: 1px solid rgba(215,179,90,.22);
-      background: rgba(215,179,90,.08);
-      color: #ffcc66;
-      white-space: nowrap;
-    }
-    #wrath-opt .sub {
-      font-size: 11px;
-      opacity: .9;
-    }
-
-    #wrath-opt.on {
-      border-color: rgba(44,255,111,.45);
-      box-shadow: 0 10px 26px rgba(0,0,0,.55), 0 0 22px rgba(44,255,111,.25);
-    }
-    #wrath-opt.on .label { color: #2cff6f; }
-    #wrath-opt.on .tag {
-      border-color: rgba(44,255,111,.35);
-      background: rgba(44,255,111,.10);
-      color: #2cff6f;
-    }
-
-    #wrath-toast {
+    #wrath-overlay {
       position: fixed;
-      left: 50%;
-      bottom: 18px;
-      transform: translateX(-50%);
-      z-index: 2147483647;
-      padding: 10px 12px;
-      border-radius: 14px;
-      background: rgba(0,0,0,.78);
-      border: 1px solid rgba(255,60,50,.22);
-      color: #fff;
-      font: 12px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
-      box-shadow: 0 10px 26px rgba(0,0,0,.55);
-      opacity: 0;
-      pointer-events: none;
-      transition: opacity .18s ease;
-      white-space: pre-wrap;
-      max-width: 90vw;
+      inset: 0;
+      z-index: 2147483646;
+      display: none;
+      background:
+        linear-gradient(rgba(0,0,0,.85), rgba(0,0,0,.9)),
+        url("https://torn-war-bot.onrender.com/static/wrath-bg.jpg") center/cover no-repeat;
+      backdrop-filter: blur(6px);
+      color: white;
+      font-family: Arial, sans-serif;
+      overflow-y: auto;
+      padding: 40px 20px;
     }
-    #wrath-toast.show { opacity: 1; }
+
+    #wrath-overlay .panel {
+      max-width: 900px;
+      margin: auto;
+      background: rgba(0,0,0,.7);
+      border: 1px solid rgba(255,60,50,.4);
+      border-radius: 14px;
+      padding: 20px;
+      box-shadow: 0 0 30px rgba(255,60,50,.4);
+    }
+
+    #wrath-overlay h2 {
+      color: #ff3b30;
+      margin-top: 0;
+    }
+
+    .row {
+      display: flex;
+      justify-content: space-between;
+      padding: 6px 0;
+      border-bottom: 1px solid rgba(255,255,255,.1);
+    }
+
+    .member {
+      display: flex;
+      justify-content: space-between;
+      padding: 8px 10px;
+      margin-bottom: 8px;
+      border-radius: 8px;
+      background: rgba(0,0,0,.6);
+    }
+
+    .online { color: #2cff6f; }
+    .idle { color: #ffcc00; }
+    .offline { color: #ff4444; }
+
+    #wrath-close {
+      position: absolute;
+      top: 20px;
+      right: 25px;
+      cursor: pointer;
+      font-size: 22px;
+      color: white;
+    }
   `);
 
-  function toast(msg) {
-    let t = document.getElementById("wrath-toast");
-    if (!t) {
-      t = document.createElement("div");
-      t.id = "wrath-toast";
-      document.body.appendChild(t);
-    }
-    t.textContent = msg;
-    t.classList.add("show");
-    setTimeout(() => t.classList.remove("show"), 2200);
-  }
+  // =====================
+  // Build UI
+  // =====================
+  const shield = document.createElement("div");
+  shield.id = "wrath-shield";
+  shield.textContent = "🛡️";
 
-  // =========================
-  // Build UI (NO iframe)
-  // =========================
-  function buildUI() {
-    if (document.getElementById("wrath-warbot-wrap")) return;
+  const overlay = document.createElement("div");
+  overlay.id = "wrath-overlay";
 
-    const wrap = document.createElement("div");
-    wrap.id = "wrath-warbot-wrap";
+  overlay.innerHTML = `
+    <div id="wrath-close">✖</div>
+    <div class="panel">
+      <h2>⚔ 7DS*: WRATH WAR PANEL</h2>
+      <div id="war"></div>
+      <h2>🟢 ONLINE / 🟡 IDLE / 🔴 OFFLINE</h2>
+      <div id="members"></div>
+    </div>
+  `;
 
-    const shield = document.createElement("div");
-    shield.id = "wrath-warbot-shield";
-    shield.innerHTML = `<div class="icon">🛡️</div>`;
-    shield.title = "Open 7DS*: Wrath War-Bot (Lite)";
-    shield.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      openLite();
-    });
+  document.body.appendChild(shield);
+  document.body.appendChild(overlay);
 
-    wrap.appendChild(shield);
+  shield.onclick = () => {
+    overlay.style.display = "block";
+    loadState();
+  };
 
-    // Chain sitter opt-in button
-    if (isChainSitter) {
-      const opt = document.createElement("div");
-      opt.id = "wrath-opt";
-      opt.innerHTML = `
-        <div class="top">
-          <div class="label">OPT IN</div>
-          <div class="tag">CHAIN SITTER</div>
-        </div>
-        <div class="sub">Tap to become available</div>
+  document.getElementById("wrath-close").onclick = () => {
+    overlay.style.display = "none";
+  };
+
+  // =====================
+  // Data Loader
+  // =====================
+  async function loadState() {
+    try {
+      const res = await fetch(API_STATE);
+      const data = await res.json();
+
+      const war = data.war || {};
+      document.getElementById("war").innerHTML = `
+        <div class="row"><span>Opponent</span><span>${war.opponent || "None"}</span></div>
+        <div class="row"><span>Target</span><span>${war.target ?? "-"}</span></div>
+        <div class="row"><span>Your Score</span><span>${war.score ?? "-"}</span></div>
+        <div class="row"><span>Enemy Score</span><span>${war.enemy_score ?? "-"}</span></div>
       `;
 
-      updateOptUI(opt);
-
-      opt.addEventListener("click", async (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-
-        const next = !getLocalAvail();
-
-        // snappy UI
-        setLocalAvail(next);
-        updateOptUI(opt);
-
-        const res = await postAvailability(next);
-        if (res.ok) {
-          toast(next ? "✅ Opted IN (server updated)" : "✅ Opted OUT (server updated)");
-        } else {
-          // revert if server failed
-          setLocalAvail(!next);
-          updateOptUI(opt);
-          toast(
-            "❌ Failed to update server\n" +
-            (typeof res.body === "string" ? res.body : JSON.stringify(res.body, null, 2))
-          );
-        }
+      let membersHTML = "";
+      (data.rows || []).forEach(r => {
+        membersHTML += `
+          <div class="member ${r.status}">
+            <div>${r.name}</div>
+            <div>${r.status.toUpperCase()} (${r.minutes ?? "-"}m)</div>
+          </div>
+        `;
       });
 
-      wrap.appendChild(opt);
-    }
+      document.getElementById("members").innerHTML = membersHTML;
 
-    document.body.appendChild(wrap);
-  }
-
-  // =========================
-  // HARD CLEANUP: remove old war-bot iframes from older scripts
-  // =========================
-  function nukeOldIframes() {
-    const iframes = Array.from(document.querySelectorAll("iframe"));
-    for (const f of iframes) {
-      const src = (f.getAttribute("src") || "").toLowerCase();
-      if (src.includes("torn-war-bot") || src.includes("onrender.com")) {
-        f.remove();
-      }
+    } catch (e) {
+      document.getElementById("war").innerHTML = "Error loading data.";
     }
   }
 
-  // Run now + retry while Torn UI loads
-  nukeOldIframes();
-  buildUI();
+  setInterval(() => {
+    if (overlay.style.display === "block") loadState();
+  }, 15000);
 
-  let tries = 0;
-  const timer = setInterval(() => {
-    nukeOldIframes();
-    buildUI();
-    tries++;
-    if (tries >= 12) clearInterval(timer);
-  }, 800);
 })();

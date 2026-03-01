@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         7DS*: Wrath War-Bot 🛡️
 // @namespace    https://github.com/Fries91/7ds-war-bot-userscript
-// @version      2.4.3
-// @description  Draggable shield overlay + panel iframe + auto-pass me_id/me_name + chain-sitter opt toggle
+// @version      2.4.4
+// @description  Draggable shield + tap-to-open overlay + CSP-safe panel fallback (srcdoc) + Chain sitter opt toggle
 // @match        https://www.torn.com/*
 // @match        https://torn.com/*
 // @downloadURL  https://raw.githubusercontent.com/Fries91/7ds-war-bot-userscript/main/7ds-war-bot.user.js
@@ -14,19 +14,23 @@
 (function () {
   'use strict';
 
-  const PANEL_URL_BASE = 'https://torn-war-bot.onrender.com/?embed=1';
-  const API_URL        = 'https://torn-war-bot.onrender.com/api/availability';
+  const ORIGIN    = 'https://torn-war-bot.onrender.com';
+  const PANEL_URL = ORIGIN + '/?embed=1';
+  const API_URL   = ORIGIN + '/api/availability';
+  const STATE_URL = ORIGIN + '/state';
 
   // Chain sitter Torn IDs
   const CHAIN_SITTER_IDS = ['1234'];
 
-  // Optional: must match Render AVAIL_TOKEN if you use one (leave blank if using panel buttons)
+  // Optional: must match Render AVAIL_TOKEN if you use one
   const AVAIL_TOKEN = '';
 
+  // Default shield position if nothing stored
   const DEFAULT_TOP = 110;
   const DEFAULT_RIGHT = 12;
 
-  const DRAG_THRESHOLD_PX = 8; // move this much = drag (won't open)
+  // Drag threshold (px) to decide drag vs click
+  const DRAG_THRESHOLD = 8;
 
   function getStored(key, fallback = '') {
     try { return GM_getValue(key, fallback); }
@@ -42,77 +46,27 @@
     return CHAIN_SITTER_IDS.includes(String(id || '').trim());
   }
 
-  // Best-effort detection (may be empty depending on Torn context)
-  function detectTornIdentityNoPrompt(){
-    let tornId = '';
-    let name = '';
-
-    try {
-      if (window.user) {
-        tornId = String(window.user.player_id || window.user.ID || window.user.userid || '');
-        name   = String(window.user.name || window.user.username || '');
-      }
-    } catch (e) {}
-
-    // Fallback: sometimes Torn has a user ID in HTML/data attributes (best effort)
-    try {
-      if (!tornId) {
-        const el = document.querySelector('[data-userid], [data-user-id], [data-playerid]');
-        if (el) tornId = String(el.getAttribute('data-userid') || el.getAttribute('data-user-id') || el.getAttribute('data-playerid') || '');
-      }
-    } catch (e) {}
-
-    tornId = (tornId || '').trim();
-    name   = (name || '').trim();
-    return { tornId, name };
-  }
-
-  function ensureIdentityForOpt() {
-    // Only used if user hits the CHAIN SITTER opt toggle (not needed for opening panel)
+  function ensureIdentity() {
+    // Only needed for chain sitters to POST opt in/out.
     let tornId = getStored('warbot_torn_id', '');
     let name   = getStored('warbot_name', '');
 
-    // If not stored, try auto-detect without prompt
     if (!tornId) {
-      const auto = detectTornIdentityNoPrompt();
-      if (auto.tornId) {
-        tornId = auto.tornId;
-        setStored('warbot_torn_id', tornId);
-      }
-      if (!name && auto.name) {
-        name = auto.name;
-        setStored('warbot_name', name);
-      }
-    }
-
-    // Still missing? prompt (only for Opt)
-    if (!tornId) {
-      tornId = (prompt('Enter your Torn ID:', '') || '').trim();
+      tornId = prompt('Enter your Torn ID (needed only for Opt In/Out):', '') || '';
+      tornId = tornId.trim();
       if (tornId) setStored('warbot_torn_id', tornId);
     }
     if (!name) {
-      name = (prompt('Enter your Torn name (optional):', '') || '').trim();
+      name = prompt('Enter your Torn name (needed only for Opt In/Out):', '') || '';
+      name = name.trim();
       if (name) setStored('warbot_name', name);
     }
 
-    return { tornId: (tornId || '').trim(), name: (name || '').trim() };
-  }
-
-  function buildPanelURL() {
-    const auto = detectTornIdentityNoPrompt();
-    const u = new URL(PANEL_URL_BASE);
-
-    // Pass identity to panel so it can show Opt button on YOUR row
-    if (auto.tornId) u.searchParams.set('me_id', auto.tornId);
-    if (auto.name)   u.searchParams.set('me_name', auto.name);
-
-    // Cache buster (prevents “blank cached iframe” problems)
-    u.searchParams.set('cb', String(Date.now()));
-    return u.toString();
+    return { tornId: tornId.trim(), name: name.trim() };
   }
 
   async function postAvailability(state, toggleBtn) {
-    const { tornId, name } = ensureIdentityForOpt();
+    const { tornId, name } = ensureIdentity();
     if (!tornId) return alert('Missing Torn ID.');
 
     if (!isChainSitter(tornId)) {
@@ -137,7 +91,6 @@
 
       setStored('warbot_opt_state', state ? '1' : '0');
       updateToggleButton(toggleBtn, state);
-
     } catch (e) {
       toggleBtn.textContent = '⚠ Failed';
       alert('Request failed (network / blocked).');
@@ -163,19 +116,30 @@
   // ✅ duplicate-inject guard
   if (document.getElementById('warbot_shield')) return;
 
-  // Load saved shield position
-  let savedTop = parseInt(getStored('warbot_shield_top', ''), 10);
-  let savedRight = parseInt(getStored('warbot_shield_right', ''), 10);
-  if (!isFinite(savedTop)) savedTop = DEFAULT_TOP;
-  if (!isFinite(savedRight)) savedRight = DEFAULT_RIGHT;
-
+  // ---------- Shield (draggable + clickable) ----------
   const shield = document.createElement('div');
   shield.textContent = '🛡️';
   shield.id = 'warbot_shield';
+
+  // Load stored position
+  // Stored as {top,left} in px. If not present, use top/right default.
+  const storedPos = (function () {
+    try { return JSON.parse(getStored('warbot_shield_pos', '')); }
+    catch (e) { return null; }
+  })();
+
+  let topPx = DEFAULT_TOP;
+  let leftPx = null;
+
+  if (storedPos && typeof storedPos.top === 'number' && typeof storedPos.left === 'number') {
+    topPx = storedPos.top;
+    leftPx = storedPos.left;
+  }
+
   css(shield, `
     position: fixed;
-    top: ${savedTop}px;
-    right: ${savedRight}px;
+    top: ${topPx}px;
+    ${leftPx == null ? `right:${DEFAULT_RIGHT}px;` : `left:${leftPx}px;`}
     z-index: 999999;
     font-size: 26px;
     cursor: pointer;
@@ -185,31 +149,171 @@
     padding: 8px 10px;
     user-select: none;
     -webkit-user-select: none;
-    touch-action: none;
+    touch-action: none; /* important for touch dragging */
   `);
 
   document.body.appendChild(shield);
 
+  function clamp(n, min, max) { return Math.max(min, Math.min(max, n)); }
+
+  function saveShieldPos(top, left) {
+    setStored('warbot_shield_pos', JSON.stringify({ top, left }));
+  }
+
+  function normalizeToLeftTop() {
+    // Ensure shield uses left/top positioning so dragging is consistent
+    const rect = shield.getBoundingClientRect();
+    shield.style.left = rect.left + 'px';
+    shield.style.top = rect.top + 'px';
+    shield.style.right = 'auto';
+  }
+
+  let dragging = false;
+  let startX = 0, startY = 0;
+  let startLeft = 0, startTop = 0;
+  let moved = false;
+
+  function pointerDown(e) {
+    // Only left mouse button, but allow touch/pen
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+
+    dragging = true;
+    moved = false;
+
+    normalizeToLeftTop();
+
+    const rect = shield.getBoundingClientRect();
+    startLeft = rect.left;
+    startTop = rect.top;
+    startX = e.clientX;
+    startY = e.clientY;
+
+    shield.setPointerCapture?.(e.pointerId);
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
+  function pointerMove(e) {
+    if (!dragging) return;
+
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+
+    if (!moved && (Math.abs(dx) > DRAG_THRESHOLD || Math.abs(dy) > DRAG_THRESHOLD)) {
+      moved = true;
+    }
+
+    const rect = shield.getBoundingClientRect();
+    const w = rect.width || 44;
+    const h = rect.height || 44;
+
+    const maxLeft = window.innerWidth - w - 6;
+    const maxTop = window.innerHeight - h - 6;
+
+    const newLeft = clamp(startLeft + dx, 6, maxLeft);
+    const newTop = clamp(startTop + dy, 6, maxTop);
+
+    shield.style.left = newLeft + 'px';
+    shield.style.top = newTop + 'px';
+
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
+  function pointerUp(e) {
+    if (!dragging) return;
+    dragging = false;
+
+    // Save position after drag
+    const rect = shield.getBoundingClientRect();
+    saveShieldPos(rect.top, rect.left);
+
+    shield.releasePointerCapture?.(e.pointerId);
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    // If user did NOT move it, treat as a click/tap to open overlay
+    if (!moved) openOverlay();
+  }
+
+  shield.addEventListener('pointerdown', pointerDown, { passive: false });
+  window.addEventListener('pointermove', pointerMove, { passive: false });
+  window.addEventListener('pointerup', pointerUp, { passive: false });
+
+  // ---------- Overlay + CSP-safe load ----------
   let overlay = null;
 
   function openNewTab() {
-    // open non-embed
-    const full = buildPanelURL().replace('embed=1', 'embed=0');
-    window.open(full, '_blank', 'noopener,noreferrer');
+    window.open(ORIGIN + '/', '_blank', 'noopener,noreferrer');
   }
 
-  function closeOverlay() {
-    if (overlay) {
-      overlay.remove();
-      overlay = null;
-    }
+  async function buildSrcDocHTML() {
+    const res = await fetch(PANEL_URL + (PANEL_URL.includes('?') ? '&' : '?') + 'cb=' + Date.now(), { cache: 'no-store' });
+    const html = await res.text();
+
+    // Patch relative fetches to absolute so srcdoc works
+    let patched = html
+      .replace(/fetch\(\s*['"]\/state['"]\s*\)/g, `fetch('${STATE_URL}')`)
+      .replace(/fetch\(\s*["']\/state["']\s*,/g, `fetch('${STATE_URL}',`)
+      .replace(/fetch\(\s*['"]\/health['"]\s*\)/g, `fetch('${ORIGIN}/health')`)
+      .replace(/fetch\(\s*["']\/health["']\s*,/g, `fetch('${ORIGIN}/health',`);
+
+    return patched;
+  }
+
+  async function loadPanelWithCSPFallback(iframe, msgEl) {
+    const url = PANEL_URL + (PANEL_URL.includes('?') ? '&' : '?') + 'cb=' + Date.now();
+
+    let fellBack = false;
+
+    const fallback = async () => {
+      if (fellBack) return;
+      fellBack = true;
+
+      if (msgEl) {
+        msgEl.textContent = 'CSP blocked iframe — loading safe mode…';
+        msgEl.style.display = 'block';
+      }
+
+      try {
+        const patchedHTML = await buildSrcDocHTML();
+        iframe.removeAttribute('src');
+        iframe.srcdoc = patchedHTML;
+
+        if (msgEl) {
+          msgEl.textContent = 'Safe mode loaded ✅';
+          setTimeout(() => { msgEl.style.display = 'none'; }, 1200);
+        }
+      } catch (e) {
+        if (msgEl) {
+          msgEl.textContent = 'Safe mode failed. Use “Open Panel”.';
+          msgEl.style.display = 'block';
+        }
+      }
+    };
+
+    // Try normal iframe first
+    iframe.src = url;
+
+    // If browser fires error (often with CSP), fallback
+    iframe.addEventListener('error', fallback);
+
+    // Timed fallback (blank / blocked)
+    setTimeout(() => fallback(), 1500);
+
+    // If it loads normally, hide message
+    iframe.addEventListener('load', () => {
+      if (msgEl) setTimeout(() => { msgEl.style.display = 'none'; }, 600);
+    }, { once: true });
   }
 
   function openOverlay() {
     if (overlay) return;
 
-    const auto = detectTornIdentityNoPrompt();
-    const chainSitter = isChainSitter(auto.tornId || getStored('warbot_torn_id', ''));
+    // Only show chain sitter button if their stored ID is a chain sitter
+    const storedId = getStored('warbot_torn_id', '');
+    const chainSitter = isChainSitter(storedId);
 
     overlay = document.createElement('div');
     css(overlay, `
@@ -298,7 +402,10 @@
       font-weight:800;
       cursor:pointer;
     `);
-    close.onclick = closeOverlay;
+    close.onclick = () => {
+      overlay.remove();
+      overlay = null;
+    };
     bar.appendChild(close);
 
     const iframeWrap = document.createElement('div');
@@ -309,7 +416,7 @@
     `);
 
     const msg = document.createElement('div');
-    msg.textContent = 'Loading… If it stays blank or blocked, press “Open Panel”.';
+    msg.textContent = 'Loading… (If Torn blocks iframe, safe mode loads automatically)';
     css(msg, `
       position:absolute;
       top:12px;left:12px;right:12px;
@@ -324,7 +431,6 @@
     `);
 
     const iframe = document.createElement('iframe');
-    iframe.src = buildPanelURL();
     iframe.setAttribute('referrerpolicy', 'no-referrer');
     css(iframe, `
       position:absolute;
@@ -335,9 +441,6 @@
       background:transparent;
     `);
 
-    // Hide message after a bit (panel will be visible if allowed)
-    setTimeout(() => { if (msg) msg.style.display = 'none'; }, 6500);
-
     iframeWrap.appendChild(iframe);
     iframeWrap.appendChild(msg);
 
@@ -346,91 +449,7 @@
     overlay.appendChild(box);
     document.body.appendChild(overlay);
 
-    // Tap outside closes
-    overlay.addEventListener('click', (e) => {
-      if (e.target === overlay) closeOverlay();
-    });
+    loadPanelWithCSPFallback(iframe, msg);
   }
-
-  // ===== Draggable shield (tap opens) =====
-  let dragging = false;
-  let moved = false;
-  let startX = 0, startY = 0;
-  let startTop = 0, startRight = 0;
-
-  function getTopPx() {
-    const t = parseFloat(shield.style.top || '0');
-    return isFinite(t) ? t : DEFAULT_TOP;
-  }
-  function getRightPx() {
-    const r = parseFloat(shield.style.right || '0');
-    return isFinite(r) ? r : DEFAULT_RIGHT;
-  }
-
-  function onPointerDown(e){
-    dragging = true;
-    moved = false;
-
-    const ptX = e.clientX;
-    const ptY = e.clientY;
-    startX = ptX;
-    startY = ptY;
-
-    startTop = getTopPx();
-    startRight = getRightPx();
-
-    shield.setPointerCapture?.(e.pointerId);
-    e.preventDefault();
-  }
-
-  function onPointerMove(e){
-    if (!dragging) return;
-
-    const dx = e.clientX - startX;
-    const dy = e.clientY - startY;
-
-    if (!moved && (Math.abs(dx) > DRAG_THRESHOLD_PX || Math.abs(dy) > DRAG_THRESHOLD_PX)) {
-      moved = true;
-    }
-
-    // Right decreases when moving right (because it's "right" offset)
-    let newTop = startTop + dy;
-    let newRight = startRight - dx;
-
-    // clamp inside viewport
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-    const rect = shield.getBoundingClientRect();
-    const w = rect.width || 44;
-    const h = rect.height || 44;
-
-    newTop = Math.max(6, Math.min(vh - h - 6, newTop));
-    newRight = Math.max(6, Math.min(vw - w - 6, newRight));
-
-    shield.style.top = `${Math.round(newTop)}px`;
-    shield.style.right = `${Math.round(newRight)}px`;
-
-    e.preventDefault();
-  }
-
-  function onPointerUp(e){
-    if (!dragging) return;
-    dragging = false;
-
-    // save position
-    const top = Math.round(getTopPx());
-    const right = Math.round(getRightPx());
-    setStored('warbot_shield_top', String(top));
-    setStored('warbot_shield_right', String(right));
-
-    // If it was a tap (not moved), open overlay
-    if (!moved) openOverlay();
-
-    e.preventDefault();
-  }
-
-  shield.addEventListener('pointerdown', onPointerDown, { passive:false });
-  window.addEventListener('pointermove', onPointerMove, { passive:false });
-  window.addEventListener('pointerup', onPointerUp, { passive:false });
 
 })();

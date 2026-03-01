@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         7DS*: Wrath War-Bot 🛡️
 // @namespace    https://github.com/Fries91/7ds-war-bot-userscript
-// @version      2.4.2
+// @version      2.4.3
 // @description  Draggable shield overlay + panel iframe + auto-pass me_id/me_name + chain-sitter opt toggle
 // @match        https://www.torn.com/*
 // @match        https://torn.com/*

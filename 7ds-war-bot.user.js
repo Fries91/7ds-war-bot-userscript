@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         7DS*: Wrath War-Bot 🛡️ (Lite Mode - NO iframe)
 // @namespace    https://github.com/Fries91/7ds-war-bot-userscript
-// @version      2.4.1
-// @description  Draggable shield + Lite overlay renders /state (NO iframe) + chain-sitter opt button
+// @version      2.4.2
+// @description  Draggable shield + Lite overlay renders /state (NO iframe) + Opt button in Opt column for YOUR row
 // @match        https://www.torn.com/*
 // @match        https://torn.com/*
 // @run-at       document-idle
@@ -26,6 +26,7 @@
   const DEFAULT_RIGHT = 12;
   const POS_KEY = 'warbot_shield_pos_lite_v1';
 
+  // ===== storage =====
   function getStored(key, fallback = '') {
     try { return GM_getValue(key, fallback); }
     catch (e) { return localStorage.getItem(key) || fallback; }
@@ -34,23 +35,29 @@
     try { GM_setValue(key, val); }
     catch (e) { localStorage.setItem(key, val); }
   }
+
   function isChainSitter(id) {
     return CHAIN_SITTER_IDS.includes(String(id || '').trim());
   }
 
+  // ========= identity (no prompts) =========
   function getMyIdentity() {
     let tornId = (getStored('warbot_torn_id', '') || '').trim();
     let name   = (getStored('warbot_name', '') || '').trim();
+
     try {
       if (!tornId && window.user && (window.user.player_id || window.user.ID)) {
         tornId = String(window.user.player_id || window.user.ID);
       }
     } catch (e) {}
+
     if (tornId) setStored('warbot_torn_id', tornId);
     if (name) setStored('warbot_name', name);
+
     return { tornId: tornId || '', name: name || '' };
   }
 
+  // ===== HTTP (CORS-safe) =====
   function httpJSON(url, opts = {}) {
     const method = (opts.method || 'GET').toUpperCase();
     const headers = opts.headers || {};
@@ -78,12 +85,11 @@
     });
   }
 
-  async function postAvailability(state, btn) {
+  // ===== Opt In/Out =====
+  async function postAvailability(state) {
     const { tornId, name } = getMyIdentity();
-    if (!tornId) return alert('Could not detect your Torn ID here.');
-    if (!isChainSitter(tornId)) return alert('Opt In/Out is for CHAIN SITTERS only.');
-
-    btn.textContent = '⏳ Updating...';
+    if (!tornId) { alert('Could not detect your Torn ID here.'); return false; }
+    if (!isChainSitter(tornId)) { alert('Opt In/Out is for CHAIN SITTERS only.'); return false; }
 
     const payload = JSON.stringify({ torn_id: tornId, name: name, available: !!state });
     const headers = { 'Content-Type': 'application/json' };
@@ -92,32 +98,18 @@
     try {
       const res = await httpJSON(API_URL, { method: 'POST', headers, body: payload });
       if (!res.ok) {
-        btn.textContent = '⚠ Error';
         alert((res.json && res.json.error) || 'Server error');
-        return;
+        return false;
       }
       setStored('warbot_opt_state', state ? '1' : '0');
-      updateToggleButton(btn, state);
+      return true;
     } catch (e) {
-      btn.textContent = '⚠ Failed';
       alert('Request failed (network / blocked).');
+      return false;
     }
   }
 
-  function updateToggleButton(btn, active) {
-    if (active) {
-      btn.textContent = '🟢 ACTIVE (Tap to Opt Out)';
-      btn.style.background = '#0d2f1f';
-      btn.style.borderColor = '#2fff88';
-      btn.style.boxShadow = '0 0 18px rgba(47,255,136,0.5)';
-    } else {
-      btn.textContent = '🔴 INACTIVE (Tap to Opt In)';
-      btn.style.background = '#2a1010';
-      btn.style.borderColor = '#ff4b4b';
-      btn.style.boxShadow = '0 0 18px rgba(255,75,75,0.4)';
-    }
-  }
-
+  // ===== UI helpers =====
   function css(el, style) { el.style.cssText = style; return el; }
   function esc(s){ return String(s ?? '').replace(/[&<>"']/g, (c)=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c])); }
   function fmtDur(sec){
@@ -183,6 +175,7 @@
     return 'dot r';
   }
 
+  // ===== draggable =====
   function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
   function loadPos() {
     try {
@@ -365,34 +358,13 @@
       `);
 
       const { tornId } = getMyIdentity();
-      const chainSitter = tornId ? isChainSitter(tornId) : false;
+      const myId = tornId ? String(tornId) : '';
+      const chainSitter = myId ? isChainSitter(myId) : false;
 
       const title = document.createElement('div');
       title.textContent = chainSitter ? '7DS War-Bot (Chain Sitter) (Lite)' : '7DS War-Bot (Lite)';
       title.style.flex = '1';
       bar.appendChild(title);
-
-      if (chainSitter) {
-        const btn = document.createElement('button');
-        css(btn, `
-          padding:14px 16px;
-          font-size:14px;
-          font-weight:900;
-          border-radius:10px;
-          border:2px solid;
-          color:#fff;
-          cursor:pointer;
-          transition: all 0.2s ease;
-          background:#111;
-        `);
-        const currentState = getStored('warbot_opt_state', '0') === '1';
-        updateToggleButton(btn, currentState);
-        btn.onclick = ()=> {
-          const newState = !(getStored('warbot_opt_state', '0') === '1');
-          postAvailability(newState, btn);
-        };
-        bar.appendChild(btn);
-      }
 
       const openBtn = document.createElement('button');
       openBtn.textContent = '↗ Open Panel';
@@ -450,6 +422,20 @@
             display:inline-block; padding:6px 10px; border:1px solid #2a2a3a; border-radius:10px;
             background:#111; color:#ffd86a; font-weight:900; text-decoration:none; white-space:nowrap;
           }
+          .optbtn{
+            display:inline-block;
+            padding:6px 10px;
+            border-radius:10px;
+            border:1px solid #2a2a3a;
+            background:#111;
+            color:#fff;
+            font-weight:900;
+            cursor:pointer;
+            white-space:nowrap;
+          }
+          .optbtn.on{ border-color:#2fff88; box-shadow:0 0 16px rgba(47,255,136,0.35); }
+          .optbtn.off{ border-color:#ff4b4b; box-shadow:0 0 16px rgba(255,75,75,0.25); }
+          .optbtn:active{ transform: scale(0.98); }
         </style>
 
         <div class="card">
@@ -516,18 +502,53 @@
 
       overlay.addEventListener('click', (e)=>{ if (e.target === overlay) closeOverlay(); });
 
+      // --- OPT cell: button ONLY on YOUR row ---
+      function optCellHTML(x){
+        const tid = x && x.torn_id != null ? String(x.torn_id) : '';
+        const opted = !!(x && x.is_chain_sitter && x.opted_in);
+
+        // If this is YOUR row and you're chain sitter: show button
+        if (chainSitter && myId && tid === myId) {
+          const cls = opted ? 'optbtn on' : 'optbtn off';
+          const txt = opted ? '🟢 Opted In' : '🔴 Opted Out';
+          const next = opted ? '0' : '1';
+          return `<button class="${cls}" data-opt-toggle="1" data-next="${next}">${txt}</button>`;
+        }
+
+        // Everyone else stays display-only
+        return (x.is_chain_sitter && opted) ? '✅' : '—';
+      }
+
+      async function handleOptButtonClick(btn){
+        if (!btn) return;
+        btn.disabled = true;
+        const next = btn.getAttribute('data-next') === '1';
+        btn.textContent = '⏳ Updating...';
+
+        const ok = await postAvailability(next);
+        if (!ok) {
+          // revert label best-effort
+          btn.disabled = false;
+          btn.textContent = next ? '🔴 Opted Out' : '🟢 Opted In';
+          return;
+        }
+
+        // Force refresh quickly so your row updates from server
+        await refresh();
+        btn.disabled = false;
+      }
+
       function fillOK(id, arr){
         const tb = body.querySelector('#'+id); if (!tb) return;
         tb.innerHTML = '';
         (arr||[]).slice(0,350).forEach(x=>{
-          const opt = (x.is_chain_sitter && x.opted_in) ? '✅' : '—';
           const tag = x.is_chain_sitter ? '<span class="tag">CS</span>' : '';
           const tr = document.createElement('tr');
           tr.innerHTML = `
             <td><div class="namecell"><span class="${dotClass(x._kind)}"></span><span>${esc(x.name||'')}</span>${tag}</div></td>
             <td>${esc(x.level ?? '')}</td>
             <td>${esc(x.status||'')}</td>
-            <td>${opt}</td>
+            <td>${optCellHTML(x)}</td>
             <td>${bountyCell(x)}</td>`;
           tb.appendChild(tr);
         });
@@ -536,7 +557,6 @@
         const tb = body.querySelector('#'+id); if (!tb) return;
         tb.innerHTML = '';
         (arr||[]).slice(0,350).forEach(x=>{
-          const opt = (x.is_chain_sitter && x.opted_in) ? '✅' : '—';
           const tag = x.is_chain_sitter ? '<span class="tag">CS</span>' : '';
           const hm = hospitalMinutes(x);
           const ht = hm == null ? '—' : fmtDur(hm*60);
@@ -546,11 +566,20 @@
             <td>${esc(x.level ?? '')}</td>
             <td title="${esc(x.status||'')}">${esc(ht)}</td>
             <td>${esc(x.status||'')}</td>
-            <td>${opt}</td>
+            <td>${optCellHTML(x)}</td>
             <td>${bountyCell(x)}</td>`;
           tb.appendChild(tr);
         });
       }
+
+      // Event delegation for opt button clicks
+      body.addEventListener('click', (e)=>{
+        const t = e.target;
+        if (t && t.getAttribute && t.getAttribute('data-opt-toggle') === '1') {
+          e.preventDefault();
+          handleOptButtonClick(t);
+        }
+      });
 
       function renderRows(rows){
         const on_ok=[], on_h=[], idle_ok=[], idle_h=[], off_ok=[], off_h=[];

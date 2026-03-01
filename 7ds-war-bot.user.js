@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         7DS*: Wrath War-Bot 🛡️ (Overlay + Auto ID + OPT) — Online/Idle/Offline/Hospital
+// @name         7DS*: Wrath War-Bot 🛡️ (Overlay + Auto ID + OPT) — Status + Hospital
 // @namespace    7ds-wrath-warbot
-// @version      6.3.0
-// @description  Overlay shows Online/Idle/Offline/Hospital from /state (no iframe=CSP-proof). OPT auto ID. Token 666.
+// @version      6.3.1
+// @description  Overlay shows Online/Idle/Offline/Hospital from /state (no iframe = CSP-proof). OPT auto-detects your Torn ID. Token 666.
 // @match        https://www.torn.com/*
 // @match        https://torn.com/*
 // @grant        GM_addStyle
@@ -229,14 +229,13 @@
       `;
     }
 
-    const rows = data.rows || [];
     const c = data.counts || {};
     const counts = document.getElementById("wrath-counts");
     if (counts) {
-      counts.textContent =
-        `🟢 ${c.online ?? 0}  🟡 ${c.idle ?? 0}  🔴 ${c.offline ?? 0}  🏥 ${c.hospital ?? 0}`;
+      counts.textContent = `🟢 ${c.online ?? 0}  🟡 ${c.idle ?? 0}  🔴 ${c.offline ?? 0}  🏥 ${c.hospital ?? 0}`;
     }
 
+    const rows = data.rows || [];
     const membersWrap = document.getElementById("wrath-members");
     if (membersWrap) membersWrap.innerHTML = "";
 
@@ -248,6 +247,9 @@
         st === "online" ? "ONLINE" :
         st === "idle" ? "IDLE" : "OFFLINE";
 
+      const subline =
+        st === "hospital" ? "In hospital" : `Last action: ${mins}`;
+
       if (membersWrap) {
         const el = document.createElement("div");
         el.className = "m";
@@ -256,9 +258,7 @@
             <div class="dot ${esc(st)}"></div>
             <div style="min-width:0;">
               <div class="name">${esc(r.name || r.id || "Unknown")}</div>
-              <div class="meta" style="text-align:left;">
-                ${st === "hospital" ? "In hospital" : ("Last action: " + esc(mins))}
-              </div>
+              <div class="meta" style="text-align:left;">${esc(subline)}</div>
             </div>
           </div>
           <div class="meta">${label}</div>
@@ -321,7 +321,7 @@
         </div>
 
         <div class="card">
-          <h2>🟢/🟡/🔴/🏥 Status <span class="pill" id="wrath-counts">—</span></h2>
+          <h2>Status <span class="pill" id="wrath-counts">—</span></h2>
           <div class="members" id="wrath-members"></div>
         </div>
       </div>
@@ -334,18 +334,18 @@
 
     let cachedId = null;
 
-    async function ensureIdOrWarn() {
-      cachedId = cachedId || detectTornId();
-      if (!cachedId) toast("⚠️ Couldn't detect your Torn ID yet. Open your profile/sidebar, then try OPT again.");
-      return cachedId;
-    }
-
     function syncOptUI(tornId) {
       const optBtn = overlay.querySelector("#wrath-opt");
       const optText = overlay.querySelector("#wrath-opt-text");
       const on = getLocalAvail(tornId);
       optBtn.classList.toggle("on", on);
       optText.textContent = on ? "OPTED IN" : "OPT IN";
+    }
+
+    async function ensureIdOrWarn() {
+      cachedId = cachedId || detectTornId();
+      if (!cachedId) toast("⚠️ Couldn't detect your Torn ID yet. Open your profile/sidebar, then try OPT again.");
+      return cachedId;
     }
 
     shield.addEventListener("click", async (e) => {
@@ -389,6 +389,7 @@
     }, true);
   }
 
+  // auto refresh while open
   setInterval(() => {
     const overlay = document.getElementById("wrath-overlay");
     if (overlay && overlay.style.display === "block") loadAndRender(false);
@@ -396,6 +397,7 @@
 
   ensureUI();
 
+  // Torn can re-render; retry attach
   let tries = 0;
   const t = setInterval(() => {
     ensureUI();

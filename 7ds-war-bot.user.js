@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         7DS*: Wrath War-Bot 🛡️ (Overlay matches app.py realtime panel)
+// @name         7DS*: Wrath War-Bot 🛡️ (Overlay matches app.py realtime panel + Open App with ID)
 // @namespace    7ds-wrath-warbot
-// @version      6.5.0
-// @description  Shield overlay styled to match your app.py realtime panel exactly (pills/sections/warbox). Uses /state (CSP-proof). OPT still available (token 666).
+// @version      6.6.0
+// @description  Shield overlay styled to match your app.py realtime panel. Uses /state (CSP-proof). OPT (token 666). NEW: "Open App" opens your Render panel with ?xid=YOURID auto-filled.
 // @match        https://www.torn.com/*
 // @match        https://torn.com/*
 // @grant        GM_addStyle
@@ -23,7 +23,6 @@
   const SHIELD_TOP = 110;
   const SHIELD_RIGHT = 12;
 
-  // Match your app.py panel refresh feel
   const REFRESH_MS = 8000;
 
   function esc(s) {
@@ -68,6 +67,7 @@
     return null;
   }
 
+  // local opt state (fast UI), server is source of truth after refresh
   function availKey(tornId) { return `wrath_avail_${tornId || "unknown"}`; }
   function setLocalAvail(tornId, val) { GM_setValue(availKey(tornId), !!val); }
   function getLocalAvail(tornId) { return !!GM_getValue(availKey(tornId), false); }
@@ -95,11 +95,14 @@
     });
   }
 
+  function openAppPanelWithId(tid) {
+    const url = tid ? `${BASE_URL}/?xid=${encodeURIComponent(tid)}` : `${BASE_URL}/`;
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
+
   GM_addStyle(`
-    /* Keep overlay clickable */
     #wrath-overlay, #wrath-overlay * { pointer-events: auto !important; }
 
-    /* Shield button (simple) */
     #wrath-shield{
       position:fixed; top:${SHIELD_TOP}px; right:${SHIELD_RIGHT}px;
       z-index:2147483647;
@@ -114,7 +117,6 @@
       font-size:22px;
     }
 
-    /* Overlay matches app.py */
     #wrath-overlay{
       position:fixed; inset:0; z-index:2147483646; display:none;
       background:#0b0b0b;
@@ -128,7 +130,14 @@
     .title { font-weight:900; letter-spacing:.6px; font-size:16px; }
     .meta { font-size:12px; opacity:.85; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
     .pill { display:inline-block; padding:6px 10px; border-radius:999px; background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.08); font-size:12px; white-space:nowrap; }
-    .btn { cursor:pointer; user-select:none; padding:6px 10px; border-radius:999px; background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.10); font-size:12px; white-space:nowrap; }
+
+    .btn {
+      cursor:pointer; user-select:none;
+      padding:6px 10px; border-radius:999px;
+      background:rgba(255,255,255,.06);
+      border:1px solid rgba(255,255,255,.10);
+      font-size:12px; white-space:nowrap;
+    }
     .btn.on { border-color: rgba(0,255,102,.25); }
 
     .divider { margin:14px 0; height:1px; background:rgba(255,255,255,.10); }
@@ -149,7 +158,6 @@
     .hospital{ border-left:4px solid #b06cff; }
 
     .section-empty { opacity:.7; font-size:12px; padding:8px 2px; }
-
     .err { margin-top:10px; padding:10px; border-radius:12px; background:rgba(255,80,80,.12); border:1px solid rgba(255,80,80,.25); font-size:12px; white-space:pre-wrap; }
 
     .warbox { margin-top:10px; padding:10px; border-radius:12px; background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.07); font-size:12px; line-height:1.35; }
@@ -181,10 +189,11 @@
     const name = esc(r.name || r.id || "Unknown");
     const id = esc(r.id || "");
     const right = st === "hospital" ? hospLeft(r.hospital_until) : fmtMins(r.minutes);
+    const opted = r.available ? " ✅ OPTED" : "";
     return `
       <div class="member ${st}">
         <div class="left">
-          <div class="name">${name}</div>
+          <div class="name">${name}${opted}</div>
           <div class="sub">ID: ${id}</div>
         </div>
         <div class="right">${esc(right)}</div>
@@ -229,11 +238,10 @@
   async function ensureIdOrWarn() {
     const tid = detectTornId();
     if (!tid) {
-      // match app look: error box
       const err = $("rt-error");
       if (err) {
         err.style.display = "block";
-        err.textContent = "Couldn't detect your Torn ID yet.\nOpen your profile/sidebar then try OPT again.";
+        err.textContent = "Couldn't detect your Torn ID yet.\nOpen your profile/sidebar then try again.";
       }
       return null;
     }
@@ -241,18 +249,15 @@
   }
 
   function render(state) {
-    // error
     const err = $("rt-error");
     if (state.last_error) {
       err.style.display = "block";
       err.textContent = "Last error:\n" + JSON.stringify(state.last_error, null, 2);
     } else {
-      // keep any manual message? if you want strict match, hide when no errors:
       err.style.display = "none";
       err.textContent = "";
     }
 
-    // top counters
     const c = state.counts || {};
     $("rt-updated").textContent = `Updated: ${state.updated_at || "—"}`;
     $("rt-online").textContent = `🟢 ${c.online ?? 0}`;
@@ -261,11 +266,9 @@
     $("rt-hospital").textContent = `🏥 ${c.hospital ?? 0}`;
     $("rt-avail").textContent = `✅ Avail: ${state.available_count ?? 0}`;
 
-    // faction title
     const f = state.faction || {};
     $("rt-you-title").textContent = `${(f.tag ? `[${f.tag}] ` : "")}${f.name || ""}`.trim() || "—";
 
-    // war box
     const w = state.war || {};
     const warShow = (w.opponent || w.target || w.score !== null || w.enemy_score !== null);
     const warEl = $("rt-war");
@@ -282,7 +285,6 @@
       `;
     }
 
-    // you lists
     const you = split(state.rows || []);
     $("rt-you-online-count").textContent = String(you.online.length);
     $("rt-you-idle-count").textContent = String(you.idle.length);
@@ -294,7 +296,6 @@
     setList($("rt-you-hosp"), you.hosp, "hospital", "No one in hospital right now.");
     setList($("rt-you-offline"), you.offline, "offline", "No one offline right now.");
 
-    // enemy
     const enemy = state.enemy || {};
     const ef = enemy.faction || {};
     const hasEnemy = !!ef.name;
@@ -316,6 +317,11 @@
       setList($("rt-them-hosp"), them.hosp, "hospital", "No enemy in hospital right now.");
       setList($("rt-them-offline"), them.offline, "offline", "No enemy offline right now.");
     }
+
+    // ✅ Keep OPT button synced to local state (fast)
+    // (Server truth shows as ✅ OPTED beside your name after refresh.)
+    const tid = detectTornId();
+    if (tid) syncOptUI(tid);
   }
 
   async function refreshState() {
@@ -352,10 +358,12 @@
           <span class="pill" id="rt-hospital">🏥 0</span>
           <span class="pill" id="rt-avail">✅ Avail: 0</span>
 
-          <!-- Keep OPT, but styled like app.py button -->
           <span class="btn" id="rt-opt"><span id="rt-opt-text">OPT IN</span></span>
 
-          <span class="btn" id="rt-refresh">Refresh now</span>
+          <!-- ✅ NEW: Opens your Render app panel with ?xid=YOURID -->
+          <span class="btn" id="rt-open-app">Open App</span>
+
+          <span class="btn" id="rt-refresh">Refresh</span>
           <span class="btn" id="rt-close">Close</span>
         </div>
       </div>
@@ -427,6 +435,13 @@
       await refreshState();
     }, true);
 
+    // ✅ NEW: open your real Render panel with ?xid=####
+    $("rt-open-app").addEventListener("click", async (e) => {
+      e.preventDefault(); e.stopPropagation();
+      cachedId = cachedId || (await ensureIdOrWarn());
+      openAppPanelWithId(cachedId);
+    }, true);
+
     $("rt-opt").addEventListener("click", async (e) => {
       e.preventDefault(); e.stopPropagation();
       cachedId = cachedId || (await ensureIdOrWarn());
@@ -446,12 +461,12 @@
         const err = $("rt-error");
         if (err) {
           err.style.display = "block";
-          err.textContent = "Failed to update OPT\n" +
+          err.textContent =
+            "Failed to update OPT\n" +
             (typeof res.body === "string" ? res.body : JSON.stringify(res.body, null, 2));
         }
       } else {
-        // refresh counts/avail quickly
-        await refreshState();
+        await refreshState(); // refresh so ✅ OPTED label shows in list
       }
     }, true);
 

@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         7DS*: Wrath War-Bot 🛡️ (CSP-Proof Lite + Chain Sitter Opt)
 // @namespace    7ds-wrath-warbot
-// @version      3.2.0
-// @description  Shield opens /lite in a NEW TAB (no iframe = no CSP errors). Optional Chain Sitter opt-in toggle.
+// @version      3.2.1
+// @description  Shield opens /lite in a NEW TAB (no iframe = no CSP errors). Chain Sitter opt-in toggle (token protected).
 // @match        https://www.torn.com/*
 // @match        https://torn.com/*
 // @grant        GM_addStyle
@@ -22,14 +22,15 @@
   const LITE_URL = `${BASE_URL}/lite`;
   const API_AVAIL = `${BASE_URL}/api/availability`;
 
-  // Put YOUR Torn ID here (required for opt-in button + to identify you)
+  // 🔥 Put YOUR Torn ID here (required for opt-in button + to identify you)
+  // (You told me your chain sitter id is 1234 earlier — keep it or replace it with your real one)
   const MY_TORN_ID = "1234";
 
   // Chain sitter Torn IDs (only these see the OPT button)
   const CHAIN_SITTER_IDS = ["1234"];
 
-  // Optional: must match Render env AVAIL_TOKEN (leave "" if not using)
-  const AVAIL_TOKEN = "";
+  // ✅ Token must match Render env AVAIL_TOKEN
+  const AVAIL_TOKEN = "666";
 
   // Shield position
   const BTN_TOP = 110;
@@ -129,7 +130,7 @@
       filter: drop-shadow(0 0 10px rgba(255,60,50,.55));
     }
 
-    /* Optional chain sitter opt button */
+    /* Chain sitter opt button */
     #wrath-opt {
       width: 190px;
       border-radius: 16px;
@@ -257,7 +258,8 @@
         e.stopPropagation();
 
         const next = !getLocalAvail();
-        // update local immediately for snappy feel
+
+        // snappy UI
         setLocalAvail(next);
         updateOptUI(opt);
 
@@ -282,7 +284,7 @@
   }
 
   // =========================
-  // HARD CLEANUP: remove any old war-bot iframes from older scripts
+  // HARD CLEANUP: remove old war-bot iframes from older scripts
   // =========================
   function nukeOldIframes() {
     const iframes = Array.from(document.querySelectorAll("iframe"));

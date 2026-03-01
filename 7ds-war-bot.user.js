@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         7DS*: Wrath War-Bot 🛡️ (Overlay matches app.py realtime panel + Open App with ID)
+// @name         7DS*: Wrath War-Bot 🛡️ (Wrath Theme Overlay)
 // @namespace    7ds-wrath-warbot
-// @version      6.6.0
-// @description  Shield overlay styled to match your app.py realtime panel. Uses /state (CSP-proof). OPT (token 666). NEW: "Open App" opens your Render panel with ?xid=YOURID auto-filled.
+// @version      6.7.0
+// @description  Shield overlay styled to MATCH your app.py 7DS Wrath theme. Uses /state (CSP-proof). OPT (token 666). "Open App" opens Render panel with ?xid=YOURID.
 // @match        https://www.torn.com/*
 // @match        https://torn.com/*
 // @grant        GM_addStyle
@@ -67,7 +67,6 @@
     return null;
   }
 
-  // local opt state (fast UI), server is source of truth after refresh
   function availKey(tornId) { return `wrath_avail_${tornId || "unknown"}`; }
   function setLocalAvail(tornId, val) { GM_setValue(availKey(tornId), !!val); }
   function getLocalAvail(tornId) { return !!GM_getValue(availKey(tornId), false); }
@@ -100,8 +99,34 @@
     window.open(url, "_blank", "noopener,noreferrer");
   }
 
+  // ====== WRATH THEME STYLES (matches app.py) ======
   GM_addStyle(`
     #wrath-overlay, #wrath-overlay * { pointer-events: auto !important; }
+
+    :root{
+      --bg0:#070607;
+      --bg1:#0d0a0c;
+      --text:#f4f2f3;
+      --muted:rgba(244,242,243,.74);
+
+      --ember:#ff7a18;
+      --blood:#ff2a2a;
+      --gold:#ffd24a;
+      --violet:#b06cff;
+
+      --line:rgba(255,255,255,.10);
+      --cardBorder:rgba(255,255,255,.07);
+
+      --green:#00ff66;
+      --yellow:#ffd000;
+      --red:#ff3333;
+
+      --dangerBg:rgba(255,80,80,.12);
+      --dangerBorder:rgba(255,80,80,.25);
+
+      --glowRed: 0 0 14px rgba(255,42,42,.25), 0 0 26px rgba(255,42,42,.14);
+      --glowEmber: 0 0 14px rgba(255,122,24,.22), 0 0 28px rgba(255,122,24,.12);
+    }
 
     #wrath-shield{
       position:fixed; top:${SHIELD_TOP}px; right:${SHIELD_RIGHT}px;
@@ -109,60 +134,196 @@
       width:48px; height:48px; border-radius:14px;
       display:grid; place-items:center;
       cursor:pointer; user-select:none; -webkit-tap-highlight-color:transparent;
-      background: rgba(255,255,255,.06);
-      border:1px solid rgba(255,255,255,.10);
-      box-shadow:0 10px 26px rgba(0,0,0,.55);
-      color:#f2f2f2;
+
+      background: linear-gradient(180deg, rgba(255,255,255,.09), rgba(255,255,255,.04));
+      border:1px solid rgba(255,255,255,.12);
+      box-shadow: 0 14px 34px rgba(0,0,0,.60), var(--glowRed);
+      color: var(--gold);
+      text-shadow: var(--glowEmber);
       font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
       font-size:22px;
     }
 
     #wrath-overlay{
       position:fixed; inset:0; z-index:2147483646; display:none;
-      background:#0b0b0b;
-      color:#f2f2f2;
+      background:
+        radial-gradient(1200px 700px at 18% 10%, rgba(255,42,42,.10), transparent 55%),
+        radial-gradient(900px 600px at 82% 0%, rgba(255,122,24,.08), transparent 60%),
+        linear-gradient(180deg, var(--bg0), var(--bg1)) !important;
+      color: var(--text);
       font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
       overflow-y:auto;
       padding:10px;
+      -webkit-text-size-adjust: 100%;
+    }
+
+    /* Keep overlay readable even if Torn injects weird CSS */
+    #wrath-overlay * { color: inherit !important; }
+
+    .sigil{
+      height:10px;
+      border-radius:999px;
+      background: linear-gradient(90deg, transparent, rgba(255,42,42,.55), rgba(255,122,24,.45), transparent) !important;
+      opacity:.9;
+      margin-bottom:10px;
+      position:relative;
+      overflow:hidden;
+      border:1px solid rgba(255,255,255,.06) !important;
+      box-shadow: var(--glowRed);
+    }
+    .sigil:after{
+      content:"";
+      position:absolute;
+      top:-40px; left:-60%;
+      width:40%;
+      height:120px;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,.10), transparent);
+      transform: rotate(18deg);
+      animation: wrath_sweep 5.8s linear infinite;
+      opacity:.5;
+    }
+    @keyframes wrath_sweep{
+      0%{ left:-60%; }
+      100%{ left:140%; }
     }
 
     .topbar { display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:10px; }
-    .title { font-weight:900; letter-spacing:.6px; font-size:16px; }
-    .meta { font-size:12px; opacity:.85; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
-    .pill { display:inline-block; padding:6px 10px; border-radius:999px; background:rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.08); font-size:12px; white-space:nowrap; }
+    .title {
+      font-weight: 950;
+      letter-spacing: 1.1px;
+      font-size: 16px;
+      color: var(--gold) !important;
+      text-transform: uppercase;
+      text-shadow: var(--glowEmber);
+    }
+    .meta { font-size:12px; opacity:.96; display:flex; align-items:center; gap:8px; flex-wrap:wrap; color: var(--text) !important; }
+
+    .pill {
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+      padding:6px 10px;
+      border-radius:999px;
+      background: linear-gradient(180deg, rgba(255,255,255,.075), rgba(255,255,255,.04)) !important;
+      border:1px solid rgba(255,255,255,.10) !important;
+      font-size:12px;
+      white-space:nowrap;
+      color: var(--text) !important;
+    }
 
     .btn {
       cursor:pointer; user-select:none;
       padding:6px 10px; border-radius:999px;
-      background:rgba(255,255,255,.06);
-      border:1px solid rgba(255,255,255,.10);
+      background: linear-gradient(180deg, rgba(255,255,255,.075), rgba(255,255,255,.04)) !important;
+      border:1px solid rgba(255,255,255,.12) !important;
       font-size:12px; white-space:nowrap;
+      color: var(--text) !important;
+      box-shadow: 0 8px 18px rgba(0,0,0,.30);
     }
-    .btn.on { border-color: rgba(0,255,102,.25); }
+    .btn:active { transform: translateY(1px); }
+    .btn.on { border-color: rgba(0,255,102,.35) !important; box-shadow: 0 0 0 rgba(0,0,0,0), 0 0 18px rgba(0,255,102,.10); }
+    .btn.danger { border-color: rgba(255,42,42,.35) !important; }
 
-    .divider { margin:14px 0; height:1px; background:rgba(255,255,255,.10); }
-    .section-title { font-weight:900; letter-spacing:.6px; margin-top:10px; margin-bottom:6px; display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; }
-    .section-title .small { font-size:12px; opacity:.8; font-weight:600; }
+    .divider { margin:14px 0; height:1px; background:var(--line) !important; }
 
-    h2 { margin:12px 0 6px; padding-bottom:6px; border-bottom:1px solid rgba(255,255,255,.08); font-size:14px; letter-spacing:.4px; display:flex; justify-content:space-between; align-items:center; gap:10px; }
+    .section-title {
+      font-weight: 950;
+      letter-spacing: 1.0px;
+      margin-top: 10px;
+      margin-bottom: 6px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      flex-wrap:wrap;
+      color: var(--gold) !important;
+      text-shadow: var(--glowEmber);
+    }
+    .section-title .small { font-size:12px; opacity:.9; font-weight:700; color: var(--text) !important; text-shadow:none; }
 
-    .member { padding:8px 10px; margin:6px 0; border-radius:10px; display:flex; justify-content:space-between; align-items:center; gap:10px; font-size:13px; background:rgba(255,255,255,.03); border:1px solid rgba(255,255,255,.06); }
-    .left { display:flex; flex-direction:column; gap:2px; min-width:0; }
-    .name { font-weight:800; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:68vw; }
-    .sub { opacity:.75; font-size:11px; }
-    .right { opacity:.9; font-size:12px; white-space:nowrap; }
+    h2 {
+      margin:12px 0 6px;
+      padding-bottom:6px;
+      border-bottom:1px solid rgba(255,255,255,.10) !important;
+      font-size:13px;
+      letter-spacing:.7px;
+      color: var(--text) !important;
+      text-transform: uppercase;
+      opacity: .95;
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:10px;
+    }
 
-    .online{ border-left:4px solid #00ff66; }
-    .idle{ border-left:4px solid #ffd000; }
-    .offline{ border-left:4px solid #ff3333; }
-    .hospital{ border-left:4px solid #b06cff; }
+    .member {
+      padding:9px 10px;
+      margin:6px 0;
+      border-radius:12px;
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:10px;
+      font-size:13px;
+      background: linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.02)) !important;
+      border:1px solid var(--cardBorder) !important;
+      color: var(--text) !important;
+      box-shadow: 0 10px 20px rgba(0,0,0,.22);
+      position: relative;
+      overflow: hidden;
+    }
+    .member:after{
+      content:"";
+      position:absolute;
+      inset:-1px;
+      background:
+        radial-gradient(260px 60px at 10% 0%, rgba(255,122,24,.10), transparent 65%),
+        radial-gradient(220px 55px at 90% 0%, rgba(255,42,42,.10), transparent 70%);
+      pointer-events:none;
+      opacity:.8;
+    }
 
-    .section-empty { opacity:.7; font-size:12px; padding:8px 2px; }
-    .err { margin-top:10px; padding:10px; border-radius:12px; background:rgba(255,80,80,.12); border:1px solid rgba(255,80,80,.25); font-size:12px; white-space:pre-wrap; }
+    .left { display:flex; flex-direction:column; gap:2px; min-width:0; position:relative; z-index:1; }
+    .name { font-weight:900; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:68vw; color: var(--text) !important; }
+    .sub { opacity:.82; font-size:11px; color: var(--text) !important; }
+    .right { opacity:.96; font-size:12px; white-space:nowrap; color: var(--text) !important; position:relative; z-index:1; }
 
-    .warbox { margin-top:10px; padding:10px; border-radius:12px; background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.07); font-size:12px; line-height:1.35; }
+    .online{ border-left:4px solid var(--green) !important; }
+    .idle{ border-left:4px solid var(--yellow) !important; }
+    .offline{ border-left:4px solid var(--red) !important; box-shadow: var(--glowRed); }
+    .hospital{ border-left:4px solid var(--violet) !important; }
+
+    .section-empty { opacity:.85; font-size:12px; padding:8px 2px; color: var(--text) !important; }
+
+    .err {
+      margin-top:10px; padding:10px; border-radius:12px;
+      background: var(--dangerBg) !important;
+      border:1px solid var(--dangerBorder) !important;
+      font-size:12px; white-space:pre-wrap;
+      color: var(--text) !important;
+      box-shadow: var(--glowRed);
+    }
+
+    .warbox {
+      margin-top:10px; padding:10px; border-radius:14px;
+      background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03)) !important;
+      border:1px solid rgba(255,255,255,.10) !important;
+      font-size:12px; line-height:1.35;
+      color: var(--text) !important;
+      box-shadow: var(--glowEmber);
+    }
     .warrow { display:flex; justify-content:space-between; gap:10px; margin:3px 0; }
-    .label { opacity:.75; }
+    .label { opacity:.8; color: var(--muted) !important; }
+
+    .hospTimer{
+      font-weight: 900;
+      letter-spacing: .4px;
+      text-shadow: var(--glowEmber);
+    }
+
+    @media (max-width: 520px){
+      .name{ max-width: 58vw; }
+    }
   `);
 
   function $(id) { return document.getElementById(id); }
@@ -174,29 +335,40 @@
     return `${h}h ${m}m`;
   }
 
-  function hospLeft(until) {
-    const t = Number(until);
-    if (!t) return "in hospital";
-    const now = Date.now() / 1000;
-    const mins = Math.max(0, Math.round((t - now) / 60));
-    if (mins <= 0) return "in hospital";
-    if (mins < 60) return `${mins}m left`;
-    const h = Math.floor(mins / 60), m = mins % 60;
-    return `${h}h ${m}m left`;
+  function parseUntilToMs(until) {
+    if (!until) return null;
+    if (typeof until === "number") return until * 1000;
+    const s = String(until).trim();
+    if (!s) return null;
+    if (/^\d+$/.test(s)) return parseInt(s, 10) * 1000; // unix seconds string
+    const ms = Date.parse(s);
+    return isNaN(ms) ? null : ms;
+  }
+
+  function fmtLeft(msLeft) {
+    if (msLeft <= 0) return "OUT";
+    const totalSec = Math.floor(msLeft / 1000);
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    const s = totalSec % 60;
+    if (h > 0) return `${h}h ${m}m ${s}s`;
+    return `${m}m ${s}s`;
   }
 
   function memberHTML(r, st) {
     const name = esc(r.name || r.id || "Unknown");
     const id = esc(r.id || "");
-    const right = st === "hospital" ? hospLeft(r.hospital_until) : fmtMins(r.minutes);
     const opted = r.available ? " ✅ OPTED" : "";
+    const right = st === "hospital"
+      ? `<span class="hospTimer" data-until="${esc(r.hospital_until ?? "")}">—</span>`
+      : esc(fmtMins(r.minutes));
     return `
       <div class="member ${st}">
         <div class="left">
           <div class="name">${name}${opted}</div>
           <div class="sub">ID: ${id}</div>
         </div>
-        <div class="right">${esc(right)}</div>
+        <div class="right">${right}</div>
       </div>
     `;
   }
@@ -246,6 +418,26 @@
       return null;
     }
     return tid;
+  }
+
+  function tickHospitalTimers() {
+    const now = Date.now();
+    const list = document.querySelectorAll("#wrath-overlay .hospTimer");
+    for (const el of list) {
+      const raw = el.getAttribute("data-until") || "";
+      const untilMs = parseUntilToMs(raw);
+      if (!untilMs) { el.textContent = "—"; continue; }
+      const left = untilMs - now;
+      el.textContent = fmtLeft(left);
+      if (left <= 0) {
+        el.style.opacity = "0.85";
+        el.style.fontWeight = "900";
+      } else if (left < 5 * 60 * 1000) {
+        el.style.fontWeight = "950";
+      } else {
+        el.style.fontWeight = "900";
+      }
+    }
   }
 
   function render(state) {
@@ -318,10 +510,12 @@
       setList($("rt-them-offline"), them.offline, "offline", "No enemy offline right now.");
     }
 
-    // ✅ Keep OPT button synced to local state (fast)
-    // (Server truth shows as ✅ OPTED beside your name after refresh.)
+    // keep OPT button synced to local state
     const tid = detectTornId();
     if (tid) syncOptUI(tid);
+
+    // update hospital timers immediately after render
+    tickHospitalTimers();
   }
 
   async function refreshState() {
@@ -348,6 +542,8 @@
     const overlay = document.createElement("div");
     overlay.id = "wrath-overlay";
     overlay.innerHTML = `
+      <div class="sigil"></div>
+
       <div class="topbar">
         <div class="title">⚔ 7DS*: WRATH WAR PANEL</div>
         <div class="meta">
@@ -359,12 +555,9 @@
           <span class="pill" id="rt-avail">✅ Avail: 0</span>
 
           <span class="btn" id="rt-opt"><span id="rt-opt-text">OPT IN</span></span>
-
-          <!-- ✅ NEW: Opens your Render app panel with ?xid=YOURID -->
           <span class="btn" id="rt-open-app">Open App</span>
-
           <span class="btn" id="rt-refresh">Refresh</span>
-          <span class="btn" id="rt-close">Close</span>
+          <span class="btn danger" id="rt-close">Close</span>
         </div>
       </div>
 
@@ -435,7 +628,6 @@
       await refreshState();
     }, true);
 
-    // ✅ NEW: open your real Render panel with ?xid=####
     $("rt-open-app").addEventListener("click", async (e) => {
       e.preventDefault(); e.stopPropagation();
       cachedId = cachedId || (await ensureIdOrWarn());
@@ -455,7 +647,6 @@
       const res = await postAvailability(cachedId, next, nm);
 
       if (!res.ok) {
-        // rollback
         setLocalAvail(cachedId, !next);
         syncOptUI(cachedId);
         const err = $("rt-error");
@@ -466,19 +657,26 @@
             (typeof res.body === "string" ? res.body : JSON.stringify(res.body, null, 2));
         }
       } else {
-        await refreshState(); // refresh so ✅ OPTED label shows in list
+        await refreshState();
       }
     }, true);
 
     // auto refresh while open
     setInterval(() => {
-      if (overlay.style.display === "block") refreshState();
+      if (overlay.style.display === "block") {
+        refreshState();
+        tickHospitalTimers();
+      }
     }, REFRESH_MS);
+
+    // 1s hospital countdown tick while open
+    setInterval(() => {
+      if (overlay.style.display === "block") tickHospitalTimers();
+    }, 1000);
   }
 
   ensureUI();
 
-  // Torn can re-render; re-attach if needed
   let tries = 0;
   const t = setInterval(() => {
     ensureUI();

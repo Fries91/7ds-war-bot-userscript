@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         7DS*: Wrath War-Bot 🛡️ (Overlay Only — No Lite / No Background)
+// @name         7DS*: Wrath War-Bot 🛡️ (Overlay + Auto ID + OPT)
 // @namespace    7ds-wrath-warbot
-// @version      6.1.0
-// @description  In-page overlay that renders LIVE data from /state (no iframe = no CSP). OPT IN for anyone (token 666).
+// @version      6.2.0
+// @description  In-page overlay renders LIVE /state (no iframe=CSP-proof). OPT IN/OUT auto-detects your Torn ID (no editing). Token protected (666).
 // @match        https://www.torn.com/*
 // @match        https://torn.com/*
 // @grant        GM_addStyle
@@ -19,20 +19,33 @@
   const API_STATE = `${BASE_URL}/state`;
   const API_AVAIL = `${BASE_URL}/api/availability`;
 
-  // ✅ SET YOUR TORN ID
-  const MY_TORN_ID = "1234";
-
   // ✅ Must match Render AVAIL_TOKEN
   const AVAIL_TOKEN = "666";
 
+  // UI placement
   const SHIELD_TOP = 110;
   const SHIELD_RIGHT = 12;
+
+  // Refresh
   const REFRESH_MS = 15000;
 
+  // ============= Helpers =============
   function esc(s) {
     return (s ?? "").toString().replace(/[&<>"']/g, (m) => ({
       "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
     }[m]));
+  }
+
+  function toast(msg) {
+    let t = document.getElementById("wrath-toast");
+    if (!t) {
+      t = document.createElement("div");
+      t.id = "wrath-toast";
+      document.body.appendChild(t);
+    }
+    t.textContent = msg;
+    t.classList.add("show");
+    setTimeout(() => t.classList.remove("show"), 2400);
   }
 
   function httpGetJson(url) {
@@ -43,14 +56,54 @@
         headers: { "Cache-Control": "no-cache" },
         onload: (r) => {
           try { resolve(JSON.parse(r.responseText || "{}")); }
-          catch { reject(new Error("Bad JSON")); }
+          catch { reject(new Error("Bad JSON from server")); }
         },
         onerror: () => reject(new Error("Network error")),
       });
     });
   }
 
-  function postAvailability(available) {
+  // ===== Auto-detect Torn ID =====
+  function detectTornId() {
+    // Try common Torn patterns without relying on one selector.
+    try {
+      // 1) profile link: /profiles.php?XID=123456
+      const a = Array.from(document.querySelectorAll('a[href*="profiles.php?XID="]'));
+      for (const el of a) {
+        const href = el.getAttribute("href") || "";
+        const m = href.match(/profiles\.php\?XID=(\d+)/i);
+        if (m) return m[1];
+      }
+
+      // 2) any link containing XID=
+      const any = Array.from(document.querySelectorAll('a[href*="XID="]'));
+      for (const el of any) {
+        const href = el.getAttribute("href") || "";
+        const m = href.match(/XID=(\d+)/i);
+        if (m) return m[1];
+      }
+
+      // 3) body html fallback (last resort): look for XID=
+      const html = document.documentElement?.innerHTML || "";
+      const mm = html.match(/profiles\.php\?XID=(\d+)/i) || html.match(/XID=(\d{3,10})/i);
+      if (mm) return mm[1];
+    } catch (_) {}
+
+    return null;
+  }
+
+  // ===== Local opt flag per-ID =====
+  function availKey(tornId) {
+    return `wrath_avail_${tornId || "unknown"}`;
+  }
+  function setLocalAvail(tornId, val) {
+    GM_setValue(availKey(tornId), !!val);
+  }
+  function getLocalAvail(tornId) {
+    return !!GM_getValue(availKey(tornId), false);
+  }
+
+  function postAvailability(tornId, available, name) {
     return new Promise((resolve) => {
       GM_xmlhttpRequest({
         method: "POST",
@@ -60,9 +113,9 @@
           "X-Token": AVAIL_TOKEN
         },
         data: JSON.stringify({
-          torn_id: String(MY_TORN_ID),
+          torn_id: String(tornId || ""),
           available: !!available,
-          name: "" // optional
+          name: name || ""
         }),
         onload: (r) => {
           let body = r.responseText;
@@ -74,21 +127,16 @@
     });
   }
 
-  function setLocalAvail(val) { GM_setValue("wrath_avail", !!val); }
-  function getLocalAvail() { return !!GM_getValue("wrath_avail", false); }
-
-  function toast(msg) {
-    let t = document.getElementById("wrath-toast");
-    if (!t) {
-      t = document.createElement("div");
-      t.id = "wrath-toast";
-      document.body.appendChild(t);
-    }
-    t.textContent = msg;
-    t.classList.add("show");
-    setTimeout(() => t.classList.remove("show"), 2200);
+  // ===== Optional: try to detect name from DOM =====
+  function detectPlayerName() {
+    // Best effort: use document title
+    // Example titles vary; keep it safe
+    const t = (document.title || "").trim();
+    if (t && t.length <= 40) return t.replace(/\s+\-\s+Torn.*$/i, "").trim();
+    return "";
   }
 
+  // ============= Styles (no background) =============
   GM_addStyle(`
     #wrath-shield{
       position:fixed; top:${SHIELD_TOP}px; right:${SHIELD_RIGHT}px;
@@ -187,6 +235,7 @@
     #wrath-toast.show{ opacity:1; }
   `);
 
+  // ============= UI =============
   function ensureUI() {
     if (document.getElementById("wrath-shield")) return;
 
@@ -231,8 +280,29 @@
     document.body.appendChild(shield);
     document.body.appendChild(overlay);
 
-    shield.addEventListener("click", () => {
+    let cachedId = null;
+
+    async function ensureIdOrWarn() {
+      if (cachedId) return cachedId;
+      cachedId = detectTornId();
+      if (!cachedId) {
+        toast("⚠️ Couldn't detect your Torn ID yet. Open your profile/side menu then try again.");
+      }
+      return cachedId;
+    }
+
+    function syncOptUI(tornId) {
+      const optBtn = overlay.querySelector("#wrath-opt");
+      const optText = overlay.querySelector("#wrath-opt-text");
+      const on = getLocalAvail(tornId);
+      optBtn.classList.toggle("on", on);
+      optText.textContent = on ? "OPTED IN" : "OPT IN";
+    }
+
+    shield.addEventListener("click", async () => {
       overlay.style.display = "block";
+      const tid = await ensureIdOrWarn();
+      syncOptUI(tid || "unknown");
       loadAndRender();
     });
 
@@ -244,32 +314,27 @@
       loadAndRender(true);
     });
 
-    const optBtn = overlay.querySelector("#wrath-opt");
-    const optText = overlay.querySelector("#wrath-opt-text");
+    overlay.querySelector("#wrath-opt").addEventListener("click", async () => {
+      const tid = await ensureIdOrWarn();
+      if (!tid) return;
 
-    function syncOptUI() {
-      const on = getLocalAvail();
-      optBtn.classList.toggle("on", on);
-      optText.textContent = on ? "OPTED IN" : "OPT IN";
-    }
+      const next = !getLocalAvail(tid);
+      setLocalAvail(tid, next);
+      syncOptUI(tid);
 
-    syncOptUI();
+      const nm = detectPlayerName();
+      const res = await postAvailability(tid, next, nm);
 
-    optBtn.addEventListener("click", async () => {
-      const next = !getLocalAvail();
-      setLocalAvail(next);
-      syncOptUI();
-
-      const res = await postAvailability(next);
-      if (res.ok) toast(next ? "✅ Opted IN (server updated)" : "✅ Opted OUT (server updated)");
+      if (res.ok) toast(next ? `✅ Opted IN (${tid})` : `✅ Opted OUT (${tid})`);
       else {
-        setLocalAvail(!next);
-        syncOptUI();
+        setLocalAvail(tid, !next);
+        syncOptUI(tid);
         toast("❌ Failed to update server\n" + (typeof res.body === "string" ? res.body : JSON.stringify(res.body, null, 2)));
       }
     });
   }
 
+  // ============= Render =============
   function render(data) {
     const errBox = document.getElementById("wrath-err");
     errBox.style.display = "none";
@@ -344,8 +409,10 @@
     if (overlay && overlay.style.display === "block") loadAndRender(false);
   }, REFRESH_MS);
 
+  // Boot
   ensureUI();
 
+  // Torn can re-render; retry
   let tries = 0;
   const t = setInterval(() => {
     ensureUI();

@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         7DS*: Wrath War-Bot 🛡️
 // @namespace    https://github.com/Fries91/7ds-war-bot-userscript
-// @version      2.3.5
-// @description  Shield overlay + BIG toggle Opt button (CHAIN SITTER ONLY) + iframe fallback + visible overlay fix
+// @version      2.3.6
+// @description  Shield overlay + BIG toggle Opt button (CHAIN SITTER ONLY) + iframe fallback + draggable shield
 // @match        https://www.torn.com/*
 // @match        https://torn.com/*
 // @downloadURL  https://raw.githubusercontent.com/Fries91/7ds-war-bot-userscript/main/7ds-war-bot.user.js
@@ -24,8 +24,12 @@
   // Optional: must match Render AVAIL_TOKEN if you use one
   const AVAIL_TOKEN = '';
 
-  const SHIELD_TOP = 110;
-  const SHIELD_RIGHT = 12;
+  // Default position (used only if user never dragged)
+  const DEFAULT_TOP = 110;
+  const DEFAULT_RIGHT = 12;
+
+  // Storage keys
+  const POS_KEY = 'warbot_shield_pos_v1';
 
   function getStored(key, fallback = '') {
     try { return GM_getValue(key, fallback); }
@@ -37,34 +41,63 @@
     catch (e) { localStorage.setItem(key, val); }
   }
 
-  function ensureIdentity() {
-    let tornId = getStored('warbot_torn_id', '');
-    let name   = getStored('warbot_name', '');
-
-    if (!tornId) {
-      tornId = prompt('Enter your Torn ID:', '') || '';
-      tornId = tornId.trim();
-      if (tornId) setStored('warbot_torn_id', tornId);
-    }
-    if (!name) {
-      name = prompt('Enter your Torn name:', '') || '';
-      name = name.trim();
-      if (name) setStored('warbot_name', name);
-    }
-
-    return { tornId: tornId.trim(), name: name.trim() };
-  }
-
   function isChainSitter(id) {
     return CHAIN_SITTER_IDS.includes(String(id || '').trim());
   }
 
+  // ========= identity (no prompts) =========
+  // We only need an ID to enforce "chain sitter only".
+  // Tries common Torn globals/DOM. If it can't find it, Opt button just won't show.
+  function getMyIdentity() {
+    let tornId = '';
+    let name = '';
+
+    // cached
+    tornId = (getStored('warbot_torn_id', '') || '').trim();
+    name   = (getStored('warbot_name', '') || '').trim();
+
+    // try Torn globals
+    try {
+      if (!tornId && window.user && (window.user.player_id || window.user.ID)) {
+        tornId = String(window.user.player_id || window.user.ID);
+      }
+    } catch (e) {}
+
+    // try any XID reference in page source (best-effort)
+    if (!tornId) {
+      try {
+        const m = document.body && document.body.innerHTML && document.body.innerHTML.match(/XID=(\d{3,})/);
+        if (m && m[1]) tornId = m[1];
+      } catch (e) {}
+    }
+
+    // name (best-effort)
+    if (!name) {
+      try {
+        const el = document.querySelector('.user-name') ||
+                   document.querySelector('[class*="userName"]') ||
+                   document.querySelector('[class*="username"]');
+        if (el) name = (el.textContent || '').trim();
+      } catch (e) {}
+    }
+
+    if (tornId) setStored('warbot_torn_id', tornId);
+    if (name) setStored('warbot_name', name);
+
+    return { tornId: tornId || '', name: name || '' };
+  }
+
   async function postAvailability(state, toggleBtn) {
-    const { tornId, name } = ensureIdentity();
-    if (!tornId) return alert('Missing Torn ID.');
+    const { tornId, name } = getMyIdentity();
+
+    if (!tornId) {
+      alert('Could not detect your Torn ID on this page.\nOpen Torn in a normal tab and refresh, then try again.');
+      return;
+    }
 
     if (!isChainSitter(tornId)) {
-      return alert('Opt In/Out is for CHAIN SITTERS only.');
+      alert('Opt In/Out is for CHAIN SITTERS only.');
+      return;
     }
 
     toggleBtn.textContent = '⏳ Updating...';
@@ -112,10 +145,127 @@
   // ✅ duplicate-inject guard
   if (document.getElementById('warbot_shield')) return;
 
-  // If Torn body is not ready yet, retry
   function bootWhenReady() {
     if (!document.body) return setTimeout(bootWhenReady, 250);
     inject();
+  }
+
+  // ===== draggable helper (mouse + touch) =====
+  function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+
+  function loadPos() {
+    try {
+      const raw = getStored(POS_KEY, '');
+      if (!raw) return null;
+      const p = JSON.parse(raw);
+      if (!p || typeof p.x !== 'number' || typeof p.y !== 'number') return null;
+      return p;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function savePos(x, y) {
+    setStored(POS_KEY, JSON.stringify({ x, y }));
+  }
+
+  function applyPos(shield, x, y) {
+    // x,y are "left/top" in px
+    shield.style.left = `${x}px`;
+    shield.style.top  = `${y}px`;
+    shield.style.right = 'auto';
+    shield.style.bottom = 'auto';
+  }
+
+  function makeDraggable(shield) {
+    const start = { x: 0, y: 0, sx: 0, sy: 0, dragging: false, moved: false };
+
+    function onDown(clientX, clientY) {
+      const rect = shield.getBoundingClientRect();
+      start.sx = rect.left;
+      start.sy = rect.top;
+      start.x = clientX;
+      start.y = clientY;
+      start.dragging = true;
+      start.moved = false;
+      shield.style.transition = 'none';
+    }
+
+    function onMove(clientX, clientY) {
+      if (!start.dragging) return;
+      const dx = clientX - start.x;
+      const dy = clientY - start.y;
+
+      if (Math.abs(dx) + Math.abs(dy) > 6) start.moved = true;
+
+      const rect = shield.getBoundingClientRect();
+      const w = rect.width;
+      const h = rect.height;
+
+      const maxX = window.innerWidth  - w - 2;
+      const maxY = window.innerHeight - h - 2;
+
+      const nx = clamp(start.sx + dx, 2, maxX);
+      const ny = clamp(start.sy + dy, 2, maxY);
+
+      applyPos(shield, nx, ny);
+    }
+
+    function onUp() {
+      if (!start.dragging) return;
+      start.dragging = false;
+
+      // snap save
+      const rect = shield.getBoundingClientRect();
+      savePos(rect.left, rect.top);
+
+      // restore transition (optional)
+      shield.style.transition = '';
+    }
+
+    // Mouse
+    shield.addEventListener('mousedown', (e) => {
+      // left click only
+      if (e.button !== 0) return;
+      e.preventDefault();
+      onDown(e.clientX, e.clientY);
+
+      const mm = (ev) => { ev.preventDefault(); onMove(ev.clientX, ev.clientY); };
+      const mu = (ev) => {
+        ev.preventDefault();
+        document.removeEventListener('mousemove', mm, true);
+        document.removeEventListener('mouseup', mu, true);
+        onUp();
+      };
+
+      document.addEventListener('mousemove', mm, true);
+      document.addEventListener('mouseup', mu, true);
+    }, true);
+
+    // Touch
+    shield.addEventListener('touchstart', (e) => {
+      if (!e.touches || !e.touches[0]) return;
+      const t = e.touches[0];
+      onDown(t.clientX, t.clientY);
+      // prevent scroll while dragging
+      e.preventDefault();
+    }, { passive: false });
+
+    shield.addEventListener('touchmove', (e) => {
+      if (!start.dragging || !e.touches || !e.touches[0]) return;
+      const t = e.touches[0];
+      onMove(t.clientX, t.clientY);
+      e.preventDefault();
+    }, { passive: false });
+
+    shield.addEventListener('touchend', (e) => {
+      onUp();
+      e.preventDefault();
+    }, { passive: false });
+
+    // So click-to-open doesn't fire after a drag
+    shield._warbotWasDragged = () => start.moved;
+    shield._warbotResetDragged = () => { start.moved = false; };
   }
 
   function inject() {
@@ -123,10 +273,9 @@
     const shield = document.createElement('div');
     shield.textContent = '🛡️';
     shield.id = 'warbot_shield';
+
     css(shield, `
       position: fixed;
-      top: ${SHIELD_TOP}px;
-      right: ${SHIELD_RIGHT}px;
       z-index: 2147483647;
       width: 44px;
       height: 44px;
@@ -141,9 +290,26 @@
       color: #ffd86a;
       box-shadow: 0 10px 30px rgba(0,0,0,0.45);
       user-select: none;
+      -webkit-user-select: none;
+      touch-action: none; /* important for iOS drag */
     `);
 
+    // Default position (right/top) unless saved
+    // We convert "right/top" default to "left/top" for drag system
+    const saved = loadPos();
+    if (saved) {
+      applyPos(shield, saved.x, saved.y);
+    } else {
+      // compute default left from right
+      const approxWidth = 44;
+      const left = Math.max(2, window.innerWidth - approxWidth - DEFAULT_RIGHT);
+      applyPos(shield, left, DEFAULT_TOP);
+      savePos(left, DEFAULT_TOP);
+    }
+
     document.body.appendChild(shield);
+
+    makeDraggable(shield);
 
     let overlay = null;
 
@@ -158,13 +324,19 @@
     }
 
     function openOverlay() {
+      // If last interaction was a drag, do not open
+      if (shield._warbotWasDragged && shield._warbotWasDragged()) {
+        if (shield._warbotResetDragged) shield._warbotResetDragged();
+        return;
+      }
+
       // Toggle behavior: click shield again closes
       if (overlay) { closeOverlay(); return; }
 
-      const { tornId } = ensureIdentity();
-      const chainSitter = isChainSitter(tornId);
+      const { tornId } = getMyIdentity();
+      const chainSitter = tornId ? isChainSitter(tornId) : false;
 
-      // Backdrop (always visible)
+      // Backdrop
       overlay = document.createElement('div');
       css(overlay, `
         position: fixed;
@@ -174,7 +346,7 @@
         z-index: 2147483646;
       `);
 
-      // Panel container (centered, no clipping)
+      // Panel container
       const box = document.createElement('div');
       css(box, `
         position: absolute;
@@ -306,10 +478,9 @@
         background: #0b0b0f;
       `);
 
-      // Hide msg after a bit
       setTimeout(() => { if (msg) msg.style.display = 'none'; }, 6000);
 
-      // Click outside panel closes
+      // Click outside closes
       overlay.addEventListener('click', (e) => {
         if (e.target === overlay) closeOverlay();
       });
@@ -323,7 +494,11 @@
       document.body.appendChild(overlay);
     }
 
-    shield.onclick = openOverlay;
+    // IMPORTANT: click handler should not interfere with dragging
+    shield.addEventListener('click', (e) => {
+      e.preventDefault();
+      openOverlay();
+    }, true);
   }
 
   bootWhenReady();

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         7DS*: Wrath War-Bot 🛡️
 // @namespace    https://github.com/Fries91/7ds-war-bot-userscript
-// @version      2.2.1
+// @version      2.3.1
 // @description  Shield overlay + BIG toggle Opt button (CHAIN SITTER ONLY) + iframe fallback
 // @match        https://www.torn.com/*
 // @match        https://torn.com/*
@@ -17,8 +17,7 @@
   const PANEL_URL = 'https://torn-war-bot.onrender.com/?embed=1';
   const API_URL   = 'https://torn-war-bot.onrender.com/api/availability';
 
-  // ✅ Chain sitter Torn IDs (comma-separated)
-  // Example: const CHAIN_SITTER_IDS = ['1234','5678'];
+  // Chain sitter Torn IDs
   const CHAIN_SITTER_IDS = ['1234'];
 
   // Optional: must match Render AVAIL_TOKEN if you use one
@@ -113,7 +112,7 @@
 
   function css(el, style) { el.style.cssText = style; return el; }
 
-  // Avoid duplicate inject
+  // ✅ duplicate-inject guard
   if (document.getElementById('warbot_shield')) return;
 
   const shield = document.createElement('div');
@@ -131,6 +130,7 @@
     border-radius: 12px;
     padding: 8px 10px;
   `);
+
   document.body.appendChild(shield);
 
   let overlay = null;
@@ -207,7 +207,6 @@
       bar.appendChild(toggleBtn);
     }
 
-    // Fallback button (works even if iframe is blocked)
     const openBtn = document.createElement('button');
     openBtn.textContent = '↗ Open Panel';
     css(openBtn, `
@@ -262,7 +261,10 @@
     `);
 
     const iframe = document.createElement('iframe');
-    iframe.src = PANEL_URL;
+
+    // ✅ cache-buster so Torn/mobile doesn't keep a blocked cached iframe
+    iframe.src = PANEL_URL + (PANEL_URL.includes('?') ? '&' : '?') + 'cb=' + Date.now();
+
     iframe.setAttribute('referrerpolicy', 'no-referrer');
     css(iframe, `
       position:absolute;
@@ -273,7 +275,6 @@
       background:transparent;
     `);
 
-    // Hide the “Loading” hint after a bit
     setTimeout(() => { if (msg) msg.style.display = 'none'; }, 6000);
 
     iframeWrap.appendChild(iframe);

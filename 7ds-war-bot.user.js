@@ -1,455 +1,308 @@
 // ==UserScript==
-// @name         7DS*: Wrath War-Bot 🛡️
-// @namespace    https://github.com/Fries91/7ds-war-bot-userscript
-// @version      2.4.4
-// @description  Draggable shield + tap-to-open overlay + CSP-safe panel fallback (srcdoc) + Chain sitter opt toggle
+// @name         7DS*: Wrath War-Bot 🛡️ (CSP-Proof Lite + Chain Sitter Opt)
+// @namespace    7ds-wrath-warbot
+// @version      3.2.0
+// @description  Shield opens /lite in a NEW TAB (no iframe = no CSP errors). Optional Chain Sitter opt-in toggle.
 // @match        https://www.torn.com/*
 // @match        https://torn.com/*
-// @downloadURL  https://raw.githubusercontent.com/Fries91/7ds-war-bot-userscript/main/7ds-war-bot.user.js
-// @updateURL    https://raw.githubusercontent.com/Fries91/7ds-war-bot-userscript/main/7ds-war-bot.user.js
-// @grant        GM_setValue
+// @grant        GM_addStyle
 // @grant        GM_getValue
+// @grant        GM_setValue
+// @grant        GM_xmlhttpRequest
+// @connect      torn-war-bot.onrender.com
 // ==/UserScript==
 
 (function () {
-  'use strict';
+  "use strict";
 
-  const ORIGIN    = 'https://torn-war-bot.onrender.com';
-  const PANEL_URL = ORIGIN + '/?embed=1';
-  const API_URL   = ORIGIN + '/api/availability';
-  const STATE_URL = ORIGIN + '/state';
+  // =========================
+  // ✅ CONFIG
+  // =========================
+  const BASE_URL = "https://torn-war-bot.onrender.com";
+  const LITE_URL = `${BASE_URL}/lite`;
+  const API_AVAIL = `${BASE_URL}/api/availability`;
 
-  // Chain sitter Torn IDs
-  const CHAIN_SITTER_IDS = ['1234'];
+  // Put YOUR Torn ID here (required for opt-in button + to identify you)
+  const MY_TORN_ID = "1234";
 
-  // Optional: must match Render AVAIL_TOKEN if you use one
-  const AVAIL_TOKEN = '';
+  // Chain sitter Torn IDs (only these see the OPT button)
+  const CHAIN_SITTER_IDS = ["1234"];
 
-  // Default shield position if nothing stored
-  const DEFAULT_TOP = 110;
-  const DEFAULT_RIGHT = 12;
+  // Optional: must match Render env AVAIL_TOKEN (leave "" if not using)
+  const AVAIL_TOKEN = "";
 
-  // Drag threshold (px) to decide drag vs click
-  const DRAG_THRESHOLD = 8;
+  // Shield position
+  const BTN_TOP = 110;
+  const BTN_RIGHT = 12;
 
-  function getStored(key, fallback = '') {
-    try { return GM_getValue(key, fallback); }
-    catch (e) { return localStorage.getItem(key) || fallback; }
+  // =========================
+  // Helpers
+  // =========================
+  const isChainSitter = CHAIN_SITTER_IDS.includes(String(MY_TORN_ID));
+
+  function openLite() {
+    // ✅ No iframe. Opens in new tab. CSP-proof.
+    window.open(LITE_URL, "_blank", "noopener,noreferrer");
   }
 
-  function setStored(key, val) {
-    try { GM_setValue(key, val); }
-    catch (e) { localStorage.setItem(key, val); }
+  function setLocalAvail(val) {
+    GM_setValue("wrath_avail", !!val);
   }
 
-  function isChainSitter(id) {
-    return CHAIN_SITTER_IDS.includes(String(id || '').trim());
+  function getLocalAvail() {
+    return !!GM_getValue("wrath_avail", false);
   }
 
-  function ensureIdentity() {
-    // Only needed for chain sitters to POST opt in/out.
-    let tornId = getStored('warbot_torn_id', '');
-    let name   = getStored('warbot_name', '');
+  function updateOptUI(btn) {
+    const on = getLocalAvail();
+    btn.classList.toggle("on", on);
+    btn.querySelector(".label").textContent = on ? "OPTED IN" : "OPT IN";
+    btn.querySelector(".sub").textContent = on ? "Available for chaining" : "Tap to become available";
+  }
 
-    if (!tornId) {
-      tornId = prompt('Enter your Torn ID (needed only for Opt In/Out):', '') || '';
-      tornId = tornId.trim();
-      if (tornId) setStored('warbot_torn_id', tornId);
+  function postAvailability(available) {
+    return new Promise((resolve) => {
+      GM_xmlhttpRequest({
+        method: "POST",
+        url: API_AVAIL + (AVAIL_TOKEN ? `?token=${encodeURIComponent(AVAIL_TOKEN)}` : ""),
+        headers: {
+          "Content-Type": "application/json",
+          ...(AVAIL_TOKEN ? { "X-Token": AVAIL_TOKEN } : {})
+        },
+        data: JSON.stringify({
+          torn_id: String(MY_TORN_ID),
+          available: !!available
+        }),
+        onload: (r) => {
+          try {
+            const j = JSON.parse(r.responseText || "{}");
+            resolve({ ok: r.status >= 200 && r.status < 300 && j.ok !== false, status: r.status, body: j });
+          } catch {
+            resolve({ ok: r.status >= 200 && r.status < 300, status: r.status, body: r.responseText });
+          }
+        },
+        onerror: () => resolve({ ok: false, status: 0, body: "network error" })
+      });
+    });
+  }
+
+  // =========================
+  // Styles (Wrath theme)
+  // =========================
+  GM_addStyle(`
+    #wrath-warbot-wrap {
+      position: fixed;
+      top: ${BTN_TOP}px;
+      right: ${BTN_RIGHT}px;
+      z-index: 2147483647;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
     }
-    if (!name) {
-      name = prompt('Enter your Torn name (needed only for Opt In/Out):', '') || '';
-      name = name.trim();
-      if (name) setStored('warbot_name', name);
+
+    /* Shield */
+    #wrath-warbot-shield {
+      width: 48px;
+      height: 48px;
+      border-radius: 14px;
+      cursor: pointer;
+
+      display: grid;
+      place-items: center;
+
+      background: radial-gradient(circle at 30% 30%, rgba(255,80,70,.30), rgba(0,0,0,.85));
+      border: 1px solid rgba(255,60,50,.55);
+      box-shadow: 0 10px 28px rgba(0,0,0,.55), 0 0 18px rgba(255,60,50,.35);
+      backdrop-filter: blur(6px);
+    }
+    #wrath-warbot-shield:hover {
+      box-shadow: 0 10px 30px rgba(0,0,0,.65), 0 0 28px rgba(255,60,50,.55);
+      transform: translateY(-1px);
+    }
+    #wrath-warbot-shield:active { transform: translateY(0px) scale(.98); }
+
+    #wrath-warbot-shield .icon {
+      font-size: 22px;
+      line-height: 1;
+      filter: drop-shadow(0 0 10px rgba(255,60,50,.55));
     }
 
-    return { tornId: tornId.trim(), name: name.trim() };
-  }
+    /* Optional chain sitter opt button */
+    #wrath-opt {
+      width: 190px;
+      border-radius: 16px;
+      padding: 10px 12px;
+      cursor: pointer;
 
-  async function postAvailability(state, toggleBtn) {
-    const { tornId, name } = ensureIdentity();
-    if (!tornId) return alert('Missing Torn ID.');
+      background: rgba(0,0,0,.72);
+      border: 1px solid rgba(255,60,50,.28);
+      box-shadow: 0 10px 26px rgba(0,0,0,.55);
+      backdrop-filter: blur(8px);
 
-    if (!isChainSitter(tornId)) {
-      return alert('Opt In/Out is for CHAIN SITTERS only.');
+      color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
     }
 
-    toggleBtn.textContent = '⏳ Updating...';
-
-    const payload = { torn_id: tornId, name: name, available: state };
-    const headers = { 'Content-Type': 'application/json' };
-    if (AVAIL_TOKEN) headers['X-Avail-Token'] = AVAIL_TOKEN;
-
-    try {
-      const res = await fetch(API_URL, { method: 'POST', headers, body: JSON.stringify(payload) });
-      const j = await res.json().catch(() => ({}));
-
-      if (!res.ok) {
-        toggleBtn.textContent = '⚠ Error';
-        alert(j.error || 'Server error');
-        return;
-      }
-
-      setStored('warbot_opt_state', state ? '1' : '0');
-      updateToggleButton(toggleBtn, state);
-    } catch (e) {
-      toggleBtn.textContent = '⚠ Failed';
-      alert('Request failed (network / blocked).');
+    #wrath-opt .top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 4px;
     }
-  }
-
-  function updateToggleButton(btn, active) {
-    if (active) {
-      btn.textContent = '🟢 ACTIVE (Tap to Opt Out)';
-      btn.style.background = '#0d2f1f';
-      btn.style.borderColor = '#2fff88';
-      btn.style.boxShadow = '0 0 18px rgba(47,255,136,0.5)';
-    } else {
-      btn.textContent = '🔴 INACTIVE (Tap to Opt In)';
-      btn.style.background = '#2a1010';
-      btn.style.borderColor = '#ff4b4b';
-      btn.style.boxShadow = '0 0 18px rgba(255,75,75,0.4)';
+    #wrath-opt .label {
+      font-weight: 900;
+      letter-spacing: .6px;
+      font-size: 13px;
+      color: #ffcc66;
     }
-  }
+    #wrath-opt .tag {
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      border: 1px solid rgba(215,179,90,.22);
+      background: rgba(215,179,90,.08);
+      color: #ffcc66;
+      white-space: nowrap;
+    }
+    #wrath-opt .sub {
+      font-size: 11px;
+      opacity: .9;
+    }
 
-  function css(el, style) { el.style.cssText = style; return el; }
+    #wrath-opt.on {
+      border-color: rgba(44,255,111,.45);
+      box-shadow: 0 10px 26px rgba(0,0,0,.55), 0 0 22px rgba(44,255,111,.25);
+    }
+    #wrath-opt.on .label { color: #2cff6f; }
+    #wrath-opt.on .tag {
+      border-color: rgba(44,255,111,.35);
+      background: rgba(44,255,111,.10);
+      color: #2cff6f;
+    }
 
-  // ✅ duplicate-inject guard
-  if (document.getElementById('warbot_shield')) return;
-
-  // ---------- Shield (draggable + clickable) ----------
-  const shield = document.createElement('div');
-  shield.textContent = '🛡️';
-  shield.id = 'warbot_shield';
-
-  // Load stored position
-  // Stored as {top,left} in px. If not present, use top/right default.
-  const storedPos = (function () {
-    try { return JSON.parse(getStored('warbot_shield_pos', '')); }
-    catch (e) { return null; }
-  })();
-
-  let topPx = DEFAULT_TOP;
-  let leftPx = null;
-
-  if (storedPos && typeof storedPos.top === 'number' && typeof storedPos.left === 'number') {
-    topPx = storedPos.top;
-    leftPx = storedPos.left;
-  }
-
-  css(shield, `
-    position: fixed;
-    top: ${topPx}px;
-    ${leftPx == null ? `right:${DEFAULT_RIGHT}px;` : `left:${leftPx}px;`}
-    z-index: 999999;
-    font-size: 26px;
-    cursor: pointer;
-    background: rgba(21,21,33,0.95);
-    border: 1px solid rgba(42,42,58,0.95);
-    border-radius: 12px;
-    padding: 8px 10px;
-    user-select: none;
-    -webkit-user-select: none;
-    touch-action: none; /* important for touch dragging */
+    #wrath-toast {
+      position: fixed;
+      left: 50%;
+      bottom: 18px;
+      transform: translateX(-50%);
+      z-index: 2147483647;
+      padding: 10px 12px;
+      border-radius: 14px;
+      background: rgba(0,0,0,.78);
+      border: 1px solid rgba(255,60,50,.22);
+      color: #fff;
+      font: 12px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+      box-shadow: 0 10px 26px rgba(0,0,0,.55);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .18s ease;
+      white-space: pre-wrap;
+      max-width: 90vw;
+    }
+    #wrath-toast.show { opacity: 1; }
   `);
 
-  document.body.appendChild(shield);
-
-  function clamp(n, min, max) { return Math.max(min, Math.min(max, n)); }
-
-  function saveShieldPos(top, left) {
-    setStored('warbot_shield_pos', JSON.stringify({ top, left }));
+  function toast(msg) {
+    let t = document.getElementById("wrath-toast");
+    if (!t) {
+      t = document.createElement("div");
+      t.id = "wrath-toast";
+      document.body.appendChild(t);
+    }
+    t.textContent = msg;
+    t.classList.add("show");
+    setTimeout(() => t.classList.remove("show"), 2200);
   }
 
-  function normalizeToLeftTop() {
-    // Ensure shield uses left/top positioning so dragging is consistent
-    const rect = shield.getBoundingClientRect();
-    shield.style.left = rect.left + 'px';
-    shield.style.top = rect.top + 'px';
-    shield.style.right = 'auto';
-  }
+  // =========================
+  // Build UI (NO iframe)
+  // =========================
+  function buildUI() {
+    if (document.getElementById("wrath-warbot-wrap")) return;
 
-  let dragging = false;
-  let startX = 0, startY = 0;
-  let startLeft = 0, startTop = 0;
-  let moved = false;
+    const wrap = document.createElement("div");
+    wrap.id = "wrath-warbot-wrap";
 
-  function pointerDown(e) {
-    // Only left mouse button, but allow touch/pen
-    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    const shield = document.createElement("div");
+    shield.id = "wrath-warbot-shield";
+    shield.innerHTML = `<div class="icon">🛡️</div>`;
+    shield.title = "Open 7DS*: Wrath War-Bot (Lite)";
+    shield.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      openLite();
+    });
 
-    dragging = true;
-    moved = false;
+    wrap.appendChild(shield);
 
-    normalizeToLeftTop();
+    // Chain sitter opt-in button
+    if (isChainSitter) {
+      const opt = document.createElement("div");
+      opt.id = "wrath-opt";
+      opt.innerHTML = `
+        <div class="top">
+          <div class="label">OPT IN</div>
+          <div class="tag">CHAIN SITTER</div>
+        </div>
+        <div class="sub">Tap to become available</div>
+      `;
 
-    const rect = shield.getBoundingClientRect();
-    startLeft = rect.left;
-    startTop = rect.top;
-    startX = e.clientX;
-    startY = e.clientY;
+      updateOptUI(opt);
 
-    shield.setPointerCapture?.(e.pointerId);
-    e.preventDefault();
-    e.stopPropagation();
-  }
+      opt.addEventListener("click", async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
 
-  function pointerMove(e) {
-    if (!dragging) return;
+        const next = !getLocalAvail();
+        // update local immediately for snappy feel
+        setLocalAvail(next);
+        updateOptUI(opt);
 
-    const dx = e.clientX - startX;
-    const dy = e.clientY - startY;
+        const res = await postAvailability(next);
+        if (res.ok) {
+          toast(next ? "✅ Opted IN (server updated)" : "✅ Opted OUT (server updated)");
+        } else {
+          // revert if server failed
+          setLocalAvail(!next);
+          updateOptUI(opt);
+          toast(
+            "❌ Failed to update server\n" +
+            (typeof res.body === "string" ? res.body : JSON.stringify(res.body, null, 2))
+          );
+        }
+      });
 
-    if (!moved && (Math.abs(dx) > DRAG_THRESHOLD || Math.abs(dy) > DRAG_THRESHOLD)) {
-      moved = true;
+      wrap.appendChild(opt);
     }
 
-    const rect = shield.getBoundingClientRect();
-    const w = rect.width || 44;
-    const h = rect.height || 44;
-
-    const maxLeft = window.innerWidth - w - 6;
-    const maxTop = window.innerHeight - h - 6;
-
-    const newLeft = clamp(startLeft + dx, 6, maxLeft);
-    const newTop = clamp(startTop + dy, 6, maxTop);
-
-    shield.style.left = newLeft + 'px';
-    shield.style.top = newTop + 'px';
-
-    e.preventDefault();
-    e.stopPropagation();
+    document.body.appendChild(wrap);
   }
 
-  function pointerUp(e) {
-    if (!dragging) return;
-    dragging = false;
-
-    // Save position after drag
-    const rect = shield.getBoundingClientRect();
-    saveShieldPos(rect.top, rect.left);
-
-    shield.releasePointerCapture?.(e.pointerId);
-
-    e.preventDefault();
-    e.stopPropagation();
-
-    // If user did NOT move it, treat as a click/tap to open overlay
-    if (!moved) openOverlay();
-  }
-
-  shield.addEventListener('pointerdown', pointerDown, { passive: false });
-  window.addEventListener('pointermove', pointerMove, { passive: false });
-  window.addEventListener('pointerup', pointerUp, { passive: false });
-
-  // ---------- Overlay + CSP-safe load ----------
-  let overlay = null;
-
-  function openNewTab() {
-    window.open(ORIGIN + '/', '_blank', 'noopener,noreferrer');
-  }
-
-  async function buildSrcDocHTML() {
-    const res = await fetch(PANEL_URL + (PANEL_URL.includes('?') ? '&' : '?') + 'cb=' + Date.now(), { cache: 'no-store' });
-    const html = await res.text();
-
-    // Patch relative fetches to absolute so srcdoc works
-    let patched = html
-      .replace(/fetch\(\s*['"]\/state['"]\s*\)/g, `fetch('${STATE_URL}')`)
-      .replace(/fetch\(\s*["']\/state["']\s*,/g, `fetch('${STATE_URL}',`)
-      .replace(/fetch\(\s*['"]\/health['"]\s*\)/g, `fetch('${ORIGIN}/health')`)
-      .replace(/fetch\(\s*["']\/health["']\s*,/g, `fetch('${ORIGIN}/health',`);
-
-    return patched;
-  }
-
-  async function loadPanelWithCSPFallback(iframe, msgEl) {
-    const url = PANEL_URL + (PANEL_URL.includes('?') ? '&' : '?') + 'cb=' + Date.now();
-
-    let fellBack = false;
-
-    const fallback = async () => {
-      if (fellBack) return;
-      fellBack = true;
-
-      if (msgEl) {
-        msgEl.textContent = 'CSP blocked iframe — loading safe mode…';
-        msgEl.style.display = 'block';
+  // =========================
+  // HARD CLEANUP: remove any old war-bot iframes from older scripts
+  // =========================
+  function nukeOldIframes() {
+    const iframes = Array.from(document.querySelectorAll("iframe"));
+    for (const f of iframes) {
+      const src = (f.getAttribute("src") || "").toLowerCase();
+      if (src.includes("torn-war-bot") || src.includes("onrender.com")) {
+        f.remove();
       }
-
-      try {
-        const patchedHTML = await buildSrcDocHTML();
-        iframe.removeAttribute('src');
-        iframe.srcdoc = patchedHTML;
-
-        if (msgEl) {
-          msgEl.textContent = 'Safe mode loaded ✅';
-          setTimeout(() => { msgEl.style.display = 'none'; }, 1200);
-        }
-      } catch (e) {
-        if (msgEl) {
-          msgEl.textContent = 'Safe mode failed. Use “Open Panel”.';
-          msgEl.style.display = 'block';
-        }
-      }
-    };
-
-    // Try normal iframe first
-    iframe.src = url;
-
-    // If browser fires error (often with CSP), fallback
-    iframe.addEventListener('error', fallback);
-
-    // Timed fallback (blank / blocked)
-    setTimeout(() => fallback(), 1500);
-
-    // If it loads normally, hide message
-    iframe.addEventListener('load', () => {
-      if (msgEl) setTimeout(() => { msgEl.style.display = 'none'; }, 600);
-    }, { once: true });
-  }
-
-  function openOverlay() {
-    if (overlay) return;
-
-    // Only show chain sitter button if their stored ID is a chain sitter
-    const storedId = getStored('warbot_torn_id', '');
-    const chainSitter = isChainSitter(storedId);
-
-    overlay = document.createElement('div');
-    css(overlay, `
-      position: fixed;
-      top:0;left:0;
-      width:100vw;height:100vh;
-      background: rgba(0,0,0,0.6);
-      z-index:999998;
-    `);
-
-    const box = document.createElement('div');
-    css(box, `
-      position:absolute;
-      top:60px;left:10px;right:10px;bottom:20px;
-      background:#0b0b0f;
-      border:1px solid #2a2a3a;
-      border-radius:12px;
-      overflow:hidden;
-      display:flex;
-      flex-direction:column;
-    `);
-
-    const bar = document.createElement('div');
-    css(bar, `
-      padding:12px;
-      display:flex;
-      gap:10px;
-      align-items:center;
-      background:#151521;
-      border-bottom:1px solid #2a2a3a;
-      color:#fff;
-      font-weight:800;
-    `);
-
-    const title = document.createElement('div');
-    title.textContent = chainSitter ? '7DS War-Bot (Chain Sitter)' : '7DS War-Bot';
-    title.style.flex = '1';
-    bar.appendChild(title);
-
-    if (chainSitter) {
-      const toggleBtn = document.createElement('button');
-      css(toggleBtn, `
-        padding:14px 16px;
-        font-size:14px;
-        font-weight:900;
-        border-radius:10px;
-        border:2px solid;
-        color:#fff;
-        cursor:pointer;
-        transition: all 0.2s ease;
-      `);
-
-      const currentState = getStored('warbot_opt_state', '0') === '1';
-      updateToggleButton(toggleBtn, currentState);
-
-      toggleBtn.onclick = () => {
-        const newState = !(getStored('warbot_opt_state', '0') === '1');
-        postAvailability(newState, toggleBtn);
-      };
-
-      bar.appendChild(toggleBtn);
     }
-
-    const openBtn = document.createElement('button');
-    openBtn.textContent = '↗ Open Panel';
-    css(openBtn, `
-      padding:10px 12px;
-      background:#111;
-      border:1px solid #333;
-      border-radius:8px;
-      color:#fff;
-      font-weight:800;
-      cursor:pointer;
-    `);
-    openBtn.onclick = openNewTab;
-    bar.appendChild(openBtn);
-
-    const close = document.createElement('button');
-    close.textContent = '✖';
-    css(close, `
-      padding:10px;
-      background:#111;
-      border:1px solid #333;
-      border-radius:8px;
-      color:#fff;
-      font-weight:800;
-      cursor:pointer;
-    `);
-    close.onclick = () => {
-      overlay.remove();
-      overlay = null;
-    };
-    bar.appendChild(close);
-
-    const iframeWrap = document.createElement('div');
-    css(iframeWrap, `
-      flex:1;
-      position:relative;
-      background:#0b0b0f;
-    `);
-
-    const msg = document.createElement('div');
-    msg.textContent = 'Loading… (If Torn blocks iframe, safe mode loads automatically)';
-    css(msg, `
-      position:absolute;
-      top:12px;left:12px;right:12px;
-      z-index:2;
-      padding:10px 12px;
-      border:1px solid #2a2a3a;
-      border-radius:10px;
-      background: rgba(21,21,33,0.92);
-      color:#fff;
-      font-size:12px;
-      opacity:0.9;
-    `);
-
-    const iframe = document.createElement('iframe');
-    iframe.setAttribute('referrerpolicy', 'no-referrer');
-    css(iframe, `
-      position:absolute;
-      top:0;left:0;
-      width:100%;
-      height:100%;
-      border:0;
-      background:transparent;
-    `);
-
-    iframeWrap.appendChild(iframe);
-    iframeWrap.appendChild(msg);
-
-    box.appendChild(bar);
-    box.appendChild(iframeWrap);
-    overlay.appendChild(box);
-    document.body.appendChild(overlay);
-
-    loadPanelWithCSPFallback(iframe, msg);
   }
 
+  // Run now + retry while Torn UI loads
+  nukeOldIframes();
+  buildUI();
+
+  let tries = 0;
+  const timer = setInterval(() => {
+    nukeOldIframes();
+    buildUI();
+    tries++;
+    if (tries >= 12) clearInterval(timer);
+  }, 800);
 })();

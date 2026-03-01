@@ -1,123 +1,105 @@
 // ==UserScript==
-// @name         7DS*: Wrath War-Bot 🛡️
+// @name         7DS*: Wrath War-Bot 🛡️ (Lite Mode - NO iframe)
 // @namespace    https://github.com/Fries91/7ds-war-bot-userscript
-// @version      2.3.8
-// @description  Shield overlay + BIG toggle Opt button (CHAIN SITTER ONLY) + iframe fallback + draggable shield (tap/click opens) + iframe-block detection
+// @version      2.4.1
+// @description  Draggable shield + Lite overlay renders /state (NO iframe) + chain-sitter opt button
 // @match        https://www.torn.com/*
 // @match        https://torn.com/*
-// @downloadURL  https://raw.githubusercontent.com/Fries91/7ds-war-bot-userscript/main/7ds-war-bot.user.js
-// @updateURL    https://raw.githubusercontent.com/Fries91/7ds-war-bot-userscript/main/7ds-war-bot.user.js
 // @run-at       document-idle
 // @grant        GM_setValue
 // @grant        GM_getValue
+// @grant        GM_xmlhttpRequest
+// @connect      torn-war-bot.onrender.com
 // ==/UserScript==
 
 (function () {
   'use strict';
 
   const PANEL_ORIGIN = 'https://torn-war-bot.onrender.com';
-  const PANEL_URL    = PANEL_ORIGIN + '/?embed=1';
+  const STATE_URL    = PANEL_ORIGIN + '/state';
   const API_URL      = PANEL_ORIGIN + '/api/availability';
 
-  // Chain sitter Torn IDs
   const CHAIN_SITTER_IDS = ['1234'];
-
-  // Optional: must match Render AVAIL_TOKEN if you use one
   const AVAIL_TOKEN = '';
 
-  // Default position (used only if user never dragged)
   const DEFAULT_TOP = 110;
   const DEFAULT_RIGHT = 12;
-
-  // Storage keys
-  const POS_KEY = 'warbot_shield_pos_v2';
+  const POS_KEY = 'warbot_shield_pos_lite_v1';
 
   function getStored(key, fallback = '') {
     try { return GM_getValue(key, fallback); }
     catch (e) { return localStorage.getItem(key) || fallback; }
   }
-
   function setStored(key, val) {
     try { GM_setValue(key, val); }
     catch (e) { localStorage.setItem(key, val); }
   }
-
   function isChainSitter(id) {
     return CHAIN_SITTER_IDS.includes(String(id || '').trim());
   }
 
-  // ========= identity (no prompts) =========
   function getMyIdentity() {
     let tornId = (getStored('warbot_torn_id', '') || '').trim();
     let name   = (getStored('warbot_name', '') || '').trim();
-
-    // try Torn globals (best-effort)
     try {
       if (!tornId && window.user && (window.user.player_id || window.user.ID)) {
         tornId = String(window.user.player_id || window.user.ID);
       }
     } catch (e) {}
-
-    // best-effort scan for XID in HTML (may not always exist)
-    if (!tornId) {
-      try {
-        const m = document.body && document.body.innerHTML && document.body.innerHTML.match(/XID=(\d{3,})/);
-        if (m && m[1]) tornId = m[1];
-      } catch (e) {}
-    }
-
-    // name (best-effort)
-    if (!name) {
-      try {
-        const el =
-          document.querySelector('.user-name') ||
-          document.querySelector('[class*="userName"]') ||
-          document.querySelector('[class*="username"]');
-        if (el) name = (el.textContent || '').trim();
-      } catch (e) {}
-    }
-
     if (tornId) setStored('warbot_torn_id', tornId);
     if (name) setStored('warbot_name', name);
-
     return { tornId: tornId || '', name: name || '' };
   }
 
-  async function postAvailability(state, toggleBtn) {
+  function httpJSON(url, opts = {}) {
+    const method = (opts.method || 'GET').toUpperCase();
+    const headers = opts.headers || {};
+    const body = opts.body || null;
+
+    return new Promise((resolve, reject) => {
+      GM_xmlhttpRequest({
+        method,
+        url,
+        headers,
+        data: body,
+        timeout: 15000,
+        onload: (res) => {
+          try {
+            const txt = res.responseText || '';
+            const json = JSON.parse(txt);
+            resolve({ ok: res.status >= 200 && res.status < 300, status: res.status, json });
+          } catch (e) {
+            reject(e);
+          }
+        },
+        onerror: (e) => reject(e),
+        ontimeout: () => reject(new Error('timeout'))
+      });
+    });
+  }
+
+  async function postAvailability(state, btn) {
     const { tornId, name } = getMyIdentity();
+    if (!tornId) return alert('Could not detect your Torn ID here.');
+    if (!isChainSitter(tornId)) return alert('Opt In/Out is for CHAIN SITTERS only.');
 
-    if (!tornId) {
-      alert('Could not detect your Torn ID on this page.\nOpen Torn in a normal tab and refresh, then try again.');
-      return;
-    }
+    btn.textContent = '⏳ Updating...';
 
-    if (!isChainSitter(tornId)) {
-      alert('Opt In/Out is for CHAIN SITTERS only.');
-      return;
-    }
-
-    toggleBtn.textContent = '⏳ Updating...';
-
-    const payload = { torn_id: tornId, name: name, available: state };
-
+    const payload = JSON.stringify({ torn_id: tornId, name: name, available: !!state });
     const headers = { 'Content-Type': 'application/json' };
     if (AVAIL_TOKEN) headers['X-Avail-Token'] = AVAIL_TOKEN;
 
     try {
-      const res = await fetch(API_URL, { method: 'POST', headers, body: JSON.stringify(payload) });
-      const j = await res.json().catch(() => ({}));
-
+      const res = await httpJSON(API_URL, { method: 'POST', headers, body: payload });
       if (!res.ok) {
-        toggleBtn.textContent = '⚠ Error';
-        alert(j.error || 'Server error');
+        btn.textContent = '⚠ Error';
+        alert((res.json && res.json.error) || 'Server error');
         return;
       }
-
       setStored('warbot_opt_state', state ? '1' : '0');
-      updateToggleButton(toggleBtn, state);
-
+      updateToggleButton(btn, state);
     } catch (e) {
-      toggleBtn.textContent = '⚠ Failed';
+      btn.textContent = '⚠ Failed';
       alert('Request failed (network / blocked).');
     }
   }
@@ -137,18 +119,71 @@
   }
 
   function css(el, style) { el.style.cssText = style; return el; }
-
-  // ✅ duplicate-inject guard
-  if (document.getElementById('warbot_shield')) return;
-
-  function bootWhenReady() {
-    if (!document.body) return setTimeout(bootWhenReady, 250);
-    inject();
+  function esc(s){ return String(s ?? '').replace(/[&<>"']/g, (c)=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c])); }
+  function fmtDur(sec){
+    sec = Math.max(0, Math.floor(sec || 0));
+    const d = Math.floor(sec / 86400); sec %= 86400;
+    const h = Math.floor(sec / 3600);  sec %= 3600;
+    const m = Math.floor(sec / 60);    sec %= 60;
+    const parts = [];
+    if (d) parts.push(d + "d");
+    if (h) parts.push(h + "h");
+    if (m) parts.push(m + "m");
+    parts.push(sec + "s");
+    return parts.join(" ");
+  }
+  function pct(n, d){
+    n = Number(n); d = Number(d);
+    if (!isFinite(n) || !isFinite(d) || d <= 0) return null;
+    const p = Math.max(0, Math.min(100, (n / d) * 100));
+    return Math.round(p);
   }
 
-  // ===== draggable helper (mouse + touch) =====
-  function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+  function isHospital(r){
+    return String(r?.status || '').toLowerCase().includes('hospital');
+  }
+  function parseDurationMinutes(txt){
+    txt = String(txt || '').toLowerCase();
+    let total = 0;
+    const d = txt.match(/(\d+)\s*d/); if (d) total += parseInt(d[1],10) * 1440;
+    const h = txt.match(/(\d+)\s*h/); if (h) total += parseInt(h[1],10) * 60;
+    const m = txt.match(/(\d+)\s*m/); if (m) total += parseInt(m[1],10);
+    const s = txt.match(/(\d+)\s*s/); if (s && total === 0) total += 1;
+    return total > 0 ? total : null;
+  }
+  function hospitalMinutes(r){
+    const st = String(r?.status || '').toLowerCase();
+    if (!st.includes('hospital')) return null;
+    const idx = st.indexOf('hospital');
+    const tail = idx >= 0 ? st.slice(idx) : st;
+    return parseDurationMinutes(tail) ?? parseDurationMinutes(st);
+  }
 
+  let latestState = null;
+  let rowsFetchedAtMs = 0;
+
+  function elapsedSeconds(){
+    if (!rowsFetchedAtMs) return 0;
+    return Math.max(0, (Date.now() - rowsFetchedAtMs) / 1000);
+  }
+  function liveMinutes(baseMinutes){
+    const inc = elapsedSeconds() / 60.0;
+    const v = (baseMinutes == null) ? 1000000000 : baseMinutes;
+    if (v >= 1000000000) return v;
+    return v + inc;
+  }
+  function bucketFromMinutes(mins){
+    if (mins <= 20) return 'online';
+    if (mins > 20 && mins <= 30) return 'idle';
+    return 'offline';
+  }
+  function dotClass(kind){
+    if (kind === 'online') return 'dot g';
+    if (kind === 'idle') return 'dot y';
+    return 'dot r';
+  }
+
+  function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
   function loadPos() {
     try {
       const raw = getStored(POS_KEY, '');
@@ -156,141 +191,112 @@
       const p = JSON.parse(raw);
       if (!p || typeof p.x !== 'number' || typeof p.y !== 'number') return null;
       return p;
-    } catch (e) {
-      return null;
-    }
+    } catch { return null; }
   }
-
-  function savePos(x, y) {
-    setStored(POS_KEY, JSON.stringify({ x, y }));
-  }
-
+  function savePos(x, y) { setStored(POS_KEY, JSON.stringify({ x, y })); }
   function applyPos(shield, x, y) {
     shield.style.left = `${x}px`;
     shield.style.top  = `${y}px`;
     shield.style.right = 'auto';
     shield.style.bottom = 'auto';
   }
-
   function makeDraggable(shield) {
     const st = { x: 0, y: 0, sx: 0, sy: 0, dragging: false, moved: false };
 
-    function onDown(clientX, clientY) {
-      const rect = shield.getBoundingClientRect();
-      st.sx = rect.left;
-      st.sy = rect.top;
-      st.x = clientX;
-      st.y = clientY;
-      st.dragging = true;
-      st.moved = false;
+    function onDown(cx, cy){
+      const r = shield.getBoundingClientRect();
+      st.sx = r.left; st.sy = r.top;
+      st.x = cx; st.y = cy;
+      st.dragging = true; st.moved = false;
       shield.style.transition = 'none';
     }
-
-    function onMove(clientX, clientY) {
+    function onMove(cx, cy){
       if (!st.dragging) return;
-      const dx = clientX - st.x;
-      const dy = clientY - st.y;
+      const dx = cx - st.x, dy = cy - st.y;
+      if (Math.abs(dx) + Math.abs(dy) > 8) st.moved = true;
 
-      if (Math.abs(dx) + Math.abs(dy) > 8) st.moved = true; // drag threshold
-
-      const rect = shield.getBoundingClientRect();
-      const w = rect.width;
-      const h = rect.height;
-
-      const maxX = window.innerWidth  - w - 2;
-      const maxY = window.innerHeight - h - 2;
+      const r = shield.getBoundingClientRect();
+      const maxX = window.innerWidth - r.width - 2;
+      const maxY = window.innerHeight - r.height - 2;
 
       const nx = clamp(st.sx + dx, 2, maxX);
       const ny = clamp(st.sy + dy, 2, maxY);
-
       applyPos(shield, nx, ny);
     }
-
-    function onUp() {
+    function onUp(){
       if (!st.dragging) return;
       st.dragging = false;
-
-      const rect = shield.getBoundingClientRect();
-      savePos(rect.left, rect.top);
-
+      const r = shield.getBoundingClientRect();
+      savePos(r.left, r.top);
       shield.style.transition = '';
     }
 
-    // Mouse drag
-    shield.addEventListener('mousedown', (e) => {
+    shield.addEventListener('mousedown', (e)=>{
       if (e.button !== 0) return;
       e.preventDefault();
       onDown(e.clientX, e.clientY);
-
-      const mm = (ev) => { ev.preventDefault(); onMove(ev.clientX, ev.clientY); };
-      const mu = (ev) => {
+      const mm = (ev)=>{ ev.preventDefault(); onMove(ev.clientX, ev.clientY); };
+      const mu = (ev)=>{
         ev.preventDefault();
         document.removeEventListener('mousemove', mm, true);
         document.removeEventListener('mouseup', mu, true);
         onUp();
       };
-
       document.addEventListener('mousemove', mm, true);
       document.addEventListener('mouseup', mu, true);
     }, true);
 
-    // Touch drag
-    shield.addEventListener('touchstart', (e) => {
+    shield.addEventListener('touchstart', (e)=>{
       if (!e.touches || !e.touches[0]) return;
       const t = e.touches[0];
       onDown(t.clientX, t.clientY);
       e.preventDefault();
-    }, { passive: false });
+    }, { passive:false });
 
-    shield.addEventListener('touchmove', (e) => {
+    shield.addEventListener('touchmove', (e)=>{
       if (!st.dragging || !e.touches || !e.touches[0]) return;
       const t = e.touches[0];
       onMove(t.clientX, t.clientY);
       e.preventDefault();
-    }, { passive: false });
+    }, { passive:false });
 
-    shield.addEventListener('touchend', (e) => {
-      onUp();
-      e.preventDefault();
-    }, { passive: false });
+    shield.addEventListener('touchend', (e)=>{ onUp(); e.preventDefault(); }, { passive:false });
 
-    // expose moved flag so we can allow tap-to-open
-    shield._warbotWasDragged = () => st.moved;
-    shield._warbotResetDragged = () => { st.moved = false; };
+    shield._warbotWasDragged = ()=>st.moved;
+    shield._warbotResetDragged = ()=>{ st.moved = false; };
   }
 
-  function inject() {
-    const shield = document.createElement('div');
-    shield.textContent = '🛡️';
-    shield.id = 'warbot_shield';
+  if (document.getElementById('warbot_shield')) return;
 
+  function inject(){
+    const shield = document.createElement('div');
+    shield.id = 'warbot_shield';
+    shield.textContent = '🛡️';
     css(shield, `
       position: fixed;
       z-index: 2147483647;
       width: 44px;
       height: 44px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 24px;
-      cursor: pointer;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-size:24px;
+      cursor:pointer;
       background: rgba(21,21,33,0.95);
       border: 1px solid rgba(42,42,58,0.95);
       border-radius: 12px;
       color: #ffd86a;
       box-shadow: 0 10px 30px rgba(0,0,0,0.45);
-      user-select: none;
-      -webkit-user-select: none;
-      touch-action: none;
+      user-select:none;
+      -webkit-user-select:none;
+      touch-action:none;
     `);
 
-    // Position
     const saved = loadPos();
-    if (saved) {
-      applyPos(shield, saved.x, saved.y);
-    } else {
-      const approxWidth = 44;
-      const left = Math.max(2, window.innerWidth - approxWidth - DEFAULT_RIGHT);
+    if (saved) applyPos(shield, saved.x, saved.y);
+    else {
+      const approx = 44;
+      const left = Math.max(2, window.innerWidth - approx - DEFAULT_RIGHT);
       applyPos(shield, left, DEFAULT_TOP);
       savePos(left, DEFAULT_TOP);
     }
@@ -299,246 +305,363 @@
     makeDraggable(shield);
 
     let overlay = null;
+    let refreshTimer = null;
+    let tickTimer = null;
 
-    function openNewTab() {
-      window.open(PANEL_ORIGIN + '/', '_blank', 'noopener,noreferrer');
+    function openNewTab(){ window.open(PANEL_ORIGIN + '/', '_blank', 'noopener,noreferrer'); }
+
+    function closeOverlay(){
+      if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
+      if (tickTimer) { clearInterval(tickTimer); tickTimer = null; }
+      if (overlay) { overlay.remove(); overlay = null; }
     }
 
-    function closeOverlay() {
-      if (!overlay) return;
-      overlay.remove();
-      overlay = null;
+    function bountyCell(x){
+      const bid = x && x.torn_id != null ? String(x.torn_id) : '';
+      if (!bid) return '—';
+      const url = `https://www.torn.com/bounties.php?p=add&XID=${bid}`;
+      return `<a class="bbtn" href="${url}" target="_blank" rel="noopener noreferrer">🎯 Bounty</a>`;
     }
 
-    function openOverlay() {
+    function openOverlay(){
       if (overlay) { closeOverlay(); return; }
-
-      const { tornId } = getMyIdentity();
-      const chainSitter = tornId ? isChainSitter(tornId) : false;
 
       overlay = document.createElement('div');
       css(overlay, `
-        position: fixed;
-        inset: 0;
-        width: 100vw;
-        height: 100vh;
+        position: fixed; inset:0;
+        width:100vw; height:100vh;
         background: rgba(0,0,0,0.60);
-        z-index: 2147483646;
+        z-index:2147483646;
       `);
 
       const box = document.createElement('div');
       css(box, `
-        position: absolute;
-        top: 60px;
-        left: 50%;
+        position:absolute;
+        top:60px;
+        left:50%;
         transform: translateX(-50%);
         width: min(980px, 95vw);
         height: min(82vh, 900px);
-        background: #0b0b0f;
-        border: 1px solid #2a2a3a;
-        border-radius: 14px;
-        overflow: hidden;
-        display: flex;
-        flex-direction: column;
-        box-shadow: 0 20px 70px rgba(0,0,0,0.75);
+        background:#0b0b0f;
+        border:1px solid #2a2a3a;
+        border-radius:14px;
+        overflow:hidden;
+        display:flex;
+        flex-direction:column;
+        box-shadow:0 20px 70px rgba(0,0,0,0.75);
+        color:#fff;
+        font-family: Arial, sans-serif;
       `);
 
       const bar = document.createElement('div');
       css(bar, `
-        padding: 12px;
-        display: flex;
-        gap: 10px;
-        align-items: center;
-        background: #151521;
-        border-bottom: 1px solid #2a2a3a;
-        color: #fff;
-        font-weight: 800;
+        padding:12px;
+        display:flex;
+        gap:10px;
+        align-items:center;
+        background:#151521;
+        border-bottom:1px solid #2a2a3a;
+        font-weight:900;
       `);
 
+      const { tornId } = getMyIdentity();
+      const chainSitter = tornId ? isChainSitter(tornId) : false;
+
       const title = document.createElement('div');
-      title.textContent = chainSitter ? '7DS War-Bot (Chain Sitter)' : '7DS War-Bot';
+      title.textContent = chainSitter ? '7DS War-Bot (Chain Sitter) (Lite)' : '7DS War-Bot (Lite)';
       title.style.flex = '1';
       bar.appendChild(title);
 
       if (chainSitter) {
-        const toggleBtn = document.createElement('button');
-        css(toggleBtn, `
-          padding: 14px 16px;
-          font-size: 14px;
-          font-weight: 900;
-          border-radius: 10px;
-          border: 2px solid;
-          color: #fff;
-          cursor: pointer;
+        const btn = document.createElement('button');
+        css(btn, `
+          padding:14px 16px;
+          font-size:14px;
+          font-weight:900;
+          border-radius:10px;
+          border:2px solid;
+          color:#fff;
+          cursor:pointer;
           transition: all 0.2s ease;
-          background: #111;
+          background:#111;
         `);
-
         const currentState = getStored('warbot_opt_state', '0') === '1';
-        updateToggleButton(toggleBtn, currentState);
-
-        toggleBtn.onclick = () => {
+        updateToggleButton(btn, currentState);
+        btn.onclick = ()=> {
           const newState = !(getStored('warbot_opt_state', '0') === '1');
-          postAvailability(newState, toggleBtn);
+          postAvailability(newState, btn);
         };
-
-        bar.appendChild(toggleBtn);
+        bar.appendChild(btn);
       }
 
       const openBtn = document.createElement('button');
       openBtn.textContent = '↗ Open Panel';
       css(openBtn, `
-        padding: 10px 12px;
-        background: #111;
-        border: 1px solid #333;
-        border-radius: 8px;
-        color: #fff;
-        font-weight: 800;
-        cursor: pointer;
+        padding:10px 12px;
+        background:#111;
+        border:1px solid #333;
+        border-radius:8px;
+        color:#fff;
+        font-weight:900;
+        cursor:pointer;
       `);
       openBtn.onclick = openNewTab;
       bar.appendChild(openBtn);
 
-      const close = document.createElement('button');
-      close.textContent = '✖';
-      css(close, `
-        padding: 10px;
-        background: #111;
-        border: 1px solid #333;
-        border-radius: 8px;
-        color: #fff;
-        font-weight: 800;
-        cursor: pointer;
+      const closeBtn = document.createElement('button');
+      closeBtn.textContent = '✖';
+      css(closeBtn, `
+        padding:10px;
+        background:#111;
+        border:1px solid #333;
+        border-radius:8px;
+        color:#fff;
+        font-weight:900;
+        cursor:pointer;
       `);
-      close.onclick = closeOverlay;
-      bar.appendChild(close);
+      closeBtn.onclick = closeOverlay;
+      bar.appendChild(closeBtn);
 
-      const iframeWrap = document.createElement('div');
-      css(iframeWrap, `
-        flex: 1;
-        position: relative;
-        background: #0b0b0f;
-      `);
+      const body = document.createElement('div');
+      css(body, `flex:1; overflow:auto; padding:12px;`);
 
-      // BIG status message that stays until iframe loads successfully
-      const msg = document.createElement('div');
-      msg.innerHTML = `
-        <div style="font-weight:900; margin-bottom:6px;">Loading panel…</div>
-        <div style="opacity:0.9; line-height:1.35;">
-          If this stays blank, Torn is blocking the iframe on this page/device.<br/>
-          Use <b>↗ Open Panel</b> to view it in a normal tab.
+      body.innerHTML = `
+        <style>
+          .card{ background:#151521; border:1px solid #2a2a3a; border-radius:12px; padding:12px; margin-bottom:10px; }
+          .muted{ opacity:0.75; font-size:12px; }
+          .pill{ display:inline-block; padding:2px 10px; border:1px solid #2a2a3a; border-radius:999px; font-size:12px; margin:3px 6px 3px 0; }
+          .gold{ color:#ffd86a; }
+          .err{ color:#ffb4b4; white-space: pre-wrap; }
+          .grid{ display:flex; flex-wrap:wrap; gap:6px; }
+          table{ width:100%; border-collapse: collapse; }
+          th,td{ text-align:left; padding:8px; border-bottom:1px solid #2a2a3a; font-size:13px; vertical-align:middle; }
+          th{ opacity:0.85; }
+          .twoCol{ display:flex; gap:10px; flex-wrap:wrap; }
+          .col{ flex:1 1 360px; min-width:320px; }
+          .colTitle{ font-weight:900; margin:6px 0 8px; }
+          .hospTitle{ color:#ffb4b4; }
+          .namecell{ display:flex; align-items:center; }
+          .dot{ display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:8px; }
+          .g{ background:#3dff86; box-shadow:0 0 10px rgba(61,255,134,0.35); }
+          .y{ background:#ffd86a; box-shadow:0 0 10px rgba(255,216,106,0.28); }
+          .r{ background:#ff4b4b; box-shadow:0 0 10px rgba(255,75,75,0.28); }
+          .tag{ font-size:11px; opacity:0.75; margin-left:8px; }
+          .bbtn{
+            display:inline-block; padding:6px 10px; border:1px solid #2a2a3a; border-radius:10px;
+            background:#111; color:#ffd86a; font-weight:900; text-decoration:none; white-space:nowrap;
+          }
+        </style>
+
+        <div class="card">
+          <div style="font-weight:900; font-size:16px;"><span class="gold" id="wb_fac">War-Bot</span></div>
+          <div class="muted" id="wb_upd">Updated: —</div>
+          <div class="muted err" id="wb_err"></div>
+        </div>
+
+        <div class="card">
+          <div class="grid">
+            <div class="pill" id="wb_chain">Chain: —</div>
+            <div class="pill" id="wb_war">War: —</div>
+            <div class="pill" id="wb_score">Score: —</div>
+            <div class="pill" id="wb_target">Target: —</div>
+            <div class="pill" id="wb_prog">Progress: —</div>
+            <div class="pill" id="wb_on">🟢 Online: —</div>
+            <div class="pill" id="wb_idle">🟡 Idle: —</div>
+            <div class="pill" id="wb_off">🔴 Offline: —</div>
+            <div class="pill" id="wb_opt">Chain sitter opted-in: —</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="colTitle gold">🟢 Online (0–20m)</div>
+          <div class="twoCol">
+            <div class="col"><div class="colTitle">✅ OK</div>
+              <table><thead><tr><th>Member</th><th>Lvl</th><th>Status</th><th>Opt</th><th>Bounty</th></tr></thead><tbody id="wb_on_ok"></tbody></table>
+            </div>
+            <div class="col"><div class="colTitle hospTitle">🏥 Hospital</div>
+              <table><thead><tr><th>Member</th><th>Lvl</th><th>Hosp time</th><th>Status</th><th>Opt</th><th>Bounty</th></tr></thead><tbody id="wb_on_h"></tbody></table>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="colTitle gold">🟡 Idle (21–30m)</div>
+          <div class="twoCol">
+            <div class="col"><div class="colTitle">✅ OK</div>
+              <table><thead><tr><th>Member</th><th>Lvl</th><th>Status</th><th>Opt</th><th>Bounty</th></tr></thead><tbody id="wb_idle_ok"></tbody></table>
+            </div>
+            <div class="col"><div class="colTitle hospTitle">🏥 Hospital</div>
+              <table><thead><tr><th>Member</th><th>Lvl</th><th>Hosp time</th><th>Status</th><th>Opt</th><th>Bounty</th></tr></thead><tbody id="wb_idle_h"></tbody></table>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="colTitle">🔴 Offline (31m+)</div>
+          <div class="twoCol">
+            <div class="col"><div class="colTitle">✅ OK</div>
+              <table><thead><tr><th>Member</th><th>Lvl</th><th>Status</th><th>Opt</th><th>Bounty</th></tr></thead><tbody id="wb_off_ok"></tbody></table>
+            </div>
+            <div class="col"><div class="colTitle hospTitle">🏥 Hospital</div>
+              <table><thead><tr><th>Member</th><th>Lvl</th><th>Hosp time</th><th>Status</th><th>Opt</th><th>Bounty</th></tr></thead><tbody id="wb_off_h"></tbody></table>
+            </div>
+          </div>
         </div>
       `;
-      css(msg, `
-        position: absolute;
-        top: 12px;
-        left: 12px;
-        right: 12px;
-        z-index: 3;
-        padding: 12px 12px;
-        border: 1px solid #2a2a3a;
-        border-radius: 12px;
-        background: rgba(21,21,33,0.96);
-        color: #fff;
-        font-size: 12px;
-      `);
-
-      // If iframe is blocked, we keep msg and also show a warning after timeout
-      const warn = document.createElement('div');
-      warn.textContent = '';
-      css(warn, `
-        position: absolute;
-        left: 12px;
-        right: 12px;
-        bottom: 12px;
-        z-index: 3;
-        padding: 10px 12px;
-        border: 1px solid #5b3a3a;
-        border-radius: 12px;
-        background: rgba(60,10,10,0.55);
-        color: #ffd2d2;
-        font-size: 12px;
-        display: none;
-      `);
-
-      const iframe = document.createElement('iframe');
-
-      // cache-buster
-      iframe.src = PANEL_URL + (PANEL_URL.includes('?') ? '&' : '?') + 'cb=' + Date.now();
-
-      // These do NOT bypass Torn CSP, but they help with some Safari behavior
-      iframe.setAttribute('referrerpolicy', 'no-referrer');
-      iframe.setAttribute('loading', 'eager');
-      iframe.setAttribute('allow', 'fullscreen');
-      iframe.setAttribute('sandbox', 'allow-scripts allow-forms allow-same-origin allow-popups');
-
-      css(iframe, `
-        position: absolute;
-        inset: 0;
-        width: 100%;
-        height: 100%;
-        border: 0;
-        background: #0b0b0f;
-      `);
-
-      let loaded = false;
-
-      iframe.addEventListener('load', () => {
-        loaded = true;
-        // hide message only when iframe actually loads
-        msg.style.display = 'none';
-        warn.style.display = 'none';
-      });
-
-      // Timeout warning: likely blocked
-      const t = setTimeout(() => {
-        if (loaded) return;
-        warn.textContent =
-          '⚠ Iframe looks blocked here (Torn security policy). Tap ↗ Open Panel to view it.';
-        warn.style.display = 'block';
-      }, 3500);
-
-      overlay.addEventListener('click', (e) => {
-        if (e.target === overlay) closeOverlay();
-      });
-
-      iframeWrap.appendChild(iframe);
-      iframeWrap.appendChild(msg);
-      iframeWrap.appendChild(warn);
 
       box.appendChild(bar);
-      box.appendChild(iframeWrap);
+      box.appendChild(body);
       overlay.appendChild(box);
       document.body.appendChild(overlay);
 
-      // cleanup timer if closed quickly
-      const oldClose = closeOverlay;
-      closeOverlay = function () {
-        try { clearTimeout(t); } catch (e) {}
-        oldClose();
-      };
+      overlay.addEventListener('click', (e)=>{ if (e.target === overlay) closeOverlay(); });
+
+      function fillOK(id, arr){
+        const tb = body.querySelector('#'+id); if (!tb) return;
+        tb.innerHTML = '';
+        (arr||[]).slice(0,350).forEach(x=>{
+          const opt = (x.is_chain_sitter && x.opted_in) ? '✅' : '—';
+          const tag = x.is_chain_sitter ? '<span class="tag">CS</span>' : '';
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td><div class="namecell"><span class="${dotClass(x._kind)}"></span><span>${esc(x.name||'')}</span>${tag}</div></td>
+            <td>${esc(x.level ?? '')}</td>
+            <td>${esc(x.status||'')}</td>
+            <td>${opt}</td>
+            <td>${bountyCell(x)}</td>`;
+          tb.appendChild(tr);
+        });
+      }
+      function fillHosp(id, arr){
+        const tb = body.querySelector('#'+id); if (!tb) return;
+        tb.innerHTML = '';
+        (arr||[]).slice(0,350).forEach(x=>{
+          const opt = (x.is_chain_sitter && x.opted_in) ? '✅' : '—';
+          const tag = x.is_chain_sitter ? '<span class="tag">CS</span>' : '';
+          const hm = hospitalMinutes(x);
+          const ht = hm == null ? '—' : fmtDur(hm*60);
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td><div class="namecell"><span class="${dotClass(x._kind)}"></span><span>${esc(x.name||'')}</span>${tag}</div></td>
+            <td>${esc(x.level ?? '')}</td>
+            <td title="${esc(x.status||'')}">${esc(ht)}</td>
+            <td>${esc(x.status||'')}</td>
+            <td>${opt}</td>
+            <td>${bountyCell(x)}</td>`;
+          tb.appendChild(tr);
+        });
+      }
+
+      function renderRows(rows){
+        const on_ok=[], on_h=[], idle_ok=[], idle_h=[], off_ok=[], off_h=[];
+        for (const r of (rows||[])){
+          const mins = liveMinutes(r.last_action_minutes);
+          const kind = bucketFromMinutes(mins);
+          const rr = Object.assign({}, r, { _kind: kind, _live_mins: mins });
+          const hosp = isHospital(rr);
+          if (kind==='online') (hosp?on_h:on_ok).push(rr);
+          else if (kind==='idle') (hosp?idle_h:idle_ok).push(rr);
+          else (hosp?off_h:off_ok).push(rr);
+        }
+
+        const sortByRecent=(a,b)=>(a._live_mins||1e9)-(b._live_mins||1e9);
+        on_ok.sort(sortByRecent); idle_ok.sort(sortByRecent); off_ok.sort(sortByRecent);
+
+        const sortHosp=(a,b)=>{
+          const av = hospitalMinutes(a) ?? 1e9;
+          const bv = hospitalMinutes(b) ?? 1e9;
+          if (av!==bv) return av-bv;
+          return sortByRecent(a,b);
+        };
+        on_h.sort(sortHosp); idle_h.sort(sortHosp); off_h.sort(sortHosp);
+
+        body.querySelector('#wb_on').textContent   = `🟢 Online: ${on_ok.length+on_h.length} (OK ${on_ok.length} | 🏥 ${on_h.length})`;
+        body.querySelector('#wb_idle').textContent = `🟡 Idle: ${idle_ok.length+idle_h.length} (OK ${idle_ok.length} | 🏥 ${idle_h.length})`;
+        body.querySelector('#wb_off').textContent  = `🔴 Offline: ${off_ok.length+off_h.length} (OK ${off_ok.length} | 🏥 ${off_h.length})`;
+
+        fillOK('wb_on_ok', on_ok);   fillHosp('wb_on_h', on_h);
+        fillOK('wb_idle_ok', idle_ok); fillHosp('wb_idle_h', idle_h);
+        fillOK('wb_off_ok', off_ok); fillHosp('wb_off_h', off_h);
+      }
+
+      async function refresh(){
+        const err = body.querySelector('#wb_err');
+        try{
+          const res = await httpJSON(STATE_URL);
+          if (!res.ok) { err.textContent = `Error: /state HTTP ${res.status}`; latestState=null; return; }
+
+          latestState = res.json;
+          rowsFetchedAtMs = Date.now();
+
+          const s = latestState || {};
+          const f = s.faction || {};
+          body.querySelector('#wb_fac').textContent = (f.tag ? '['+f.tag+'] ' : '') + (f.name || '7DS*: Wrath');
+          body.querySelector('#wb_upd').textContent = 'Updated: ' + (s.updated_at || '—');
+          err.textContent = s.last_error ? ('Error: ' + JSON.stringify(s.last_error)) : '';
+
+          const c = s.chain || {};
+          body.querySelector('#wb_chain').textContent =
+            `Chain: ${c.current ?? '—'}/${c.max ?? '—'} (timeout: ${c.timeout ?? '—'}s)`;
+
+          const w = s.war || {};
+          body.querySelector('#wb_war').textContent = `War: ${(w.opponent || '—')}`;
+
+          const ourScore = (w.our_score ?? null);
+          const oppScore = (w.opp_score ?? null);
+          const ourChain = (w.our_chain ?? '—');
+          const oppChain = (w.opp_chain ?? '—');
+          body.querySelector('#wb_score').textContent =
+            `Score: ${(ourScore ?? '—')}–${(oppScore ?? '—')} | Chains: ${ourChain}–${oppChain}`;
+
+          const target = (w.target ?? null);
+          body.querySelector('#wb_target').textContent = `Target: ${(target ?? '—')}`;
+
+          const pOur = pct(ourScore, target);
+          const pOpp = pct(oppScore, target);
+          body.querySelector('#wb_prog').textContent =
+            (pOur != null || pOpp != null)
+              ? `Progress: ${(ourScore ?? '—')}/${(target ?? '—')} (${pOur ?? '—'}%) vs ${(oppScore ?? '—')}/${(target ?? '—')} (${pOpp ?? '—'}%)`
+              : 'Progress: —';
+
+          body.querySelector('#wb_opt').textContent = `Chain sitter opted-in: ${s.opted_in_count ?? 0}`;
+
+          renderRows(s.rows || []);
+        } catch(e){
+          latestState=null;
+          err.textContent = 'Error: ' + (e && e.message ? e.message : String(e));
+        }
+      }
+
+      function tick(){
+        if (!latestState || !latestState.rows) return;
+        renderRows(latestState.rows || []);
+      }
+
+      refresh();
+      refreshTimer = setInterval(refresh, 10000);
+      tickTimer = setInterval(tick, 1000);
     }
 
-    // Tap/click opens, but dragging doesn't accidentally open
-    shield.addEventListener('pointerup', (e) => {
+    shield.addEventListener('pointerup', (e)=>{
       e.preventDefault();
       if (shield._warbotWasDragged && shield._warbotWasDragged()) {
-        if (shield._warbotResetDragged) shield._warbotResetDragged();
+        shield._warbotResetDragged && shield._warbotResetDragged();
         return;
       }
       openOverlay();
-    }, { capture: true });
+    }, { capture:true });
 
-    // Fallback
-    shield.addEventListener('click', (e) => {
+    shield.addEventListener('click', (e)=>{
       e.preventDefault();
       if (shield._warbotWasDragged && shield._warbotWasDragged()) {
-        if (shield._warbotResetDragged) shield._warbotResetDragged();
+        shield._warbotResetDragged && shield._warbotResetDragged();
         return;
       }
       openOverlay();
     }, true);
   }
 
-  bootWhenReady();
+  if (!document.body) setTimeout(()=>inject(), 300);
+  else inject();
+
 })();

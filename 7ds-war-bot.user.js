@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         7DS*: Wrath War-Bot 🛡️ (Wrath Theme + Collapsible + Draggable) [SCOPED FIX + MED DEALS + YES/NO AVAIL + CHECKBOXES] (NEUTRAL DEFAULT)
+// @name         7DS*: Wrath War-Bot 🛡️ (Wrath Theme + Collapsible + Draggable) [SCOPED FIX + MED DEALS + LOCAL YES/NO + CHAIN SITTERS]
 // @namespace    7ds-wrath-warbot
-// @version      7.6.1
-// @description  Wrath-themed shield overlay matching app.py. Uses /state (CSP-proof). Shield draggable + tap to open/close. YOUR faction has ✅YES/❌NO (availability) + checkboxes + 🎯 Bounty Me. ENEMY has ⚔️ Attack. 💊 Med Deals. ✅ FIX: YES/NO loading text no longer destroys checkbox HTML, so boxes fill properly.
+// @version      7.7.0
+// @description  Wrath-themed shield overlay matching app.py. Uses /state (CSP-proof). Shield draggable + tap to open/close. ✅ YES/NO is LOCAL only (stays checked + NOT tied to server availability). 🔗 Chain Sitters section shows REAL Opt In/Out (server). 💊 Med Deals delete is server-authoritative.
 // @match        https://www.torn.com/*
 // @match        https://torn.com/*
 // @grant        GM_addStyle
@@ -25,6 +25,15 @@
   const SHIELD_TOP_DEFAULT = 110;
   const SHIELD_RIGHT_DEFAULT = 12;
   const REFRESH_MS = 8000;
+
+  // ===== local YES/NO storage =====
+  const LOCAL_PREFIX = "wrath_local_yesno_v1_"; // + memberId -> "yes"|"no"|""
+  function getLocalChoice(memberId) {
+    return (GM_getValue(LOCAL_PREFIX + String(memberId || ""), "") || "").toString();
+  }
+  function setLocalChoice(memberId, choice) {
+    GM_setValue(LOCAL_PREFIX + String(memberId || ""), choice || "");
+  }
 
   // ========== helpers ==========
   function esc(s) {
@@ -92,12 +101,13 @@
     return "";
   }
 
-  function postAvailability(tornId, available, name) {
+  // 🔗 CHAIN SITTER Opt In/Out (server)
+  function postAvailability(tornId, available, requesterId) {
     return httpJson(
       "POST",
       API_AVAIL + `?token=${encodeURIComponent(AVAIL_TOKEN)}`,
-      { torn_id: String(tornId || ""), available: !!available, name: name || "" },
-      { "X-Token": AVAIL_TOKEN }
+      { torn_id: String(tornId || ""), available: !!available, requester_id: String(requesterId || "") },
+      { "X-Token": AVAIL_TOKEN, "X-Requester-Id": String(requesterId || "") }
     );
   }
 
@@ -192,33 +202,36 @@
     return `https://www.torn.com/bounties.php?p=add&XID=${encodeURIComponent(String(id || ""))}`;
   }
 
-  // ✅ Neutral default: do NOT set on/off from server here.
+  // ✅ LOCAL YES/NO only (not tied to server availability)
   function memberHTML(r, st, mode) {
     const name = esc(r.name || r.id || "Unknown");
     const id = esc(r.id || "");
-    const opted = r.available ? " ✅ OPTED" : "";
 
     const right = st === "hospital"
       ? `<span class="hospTimer" data-until="${esc(r.hospital_until ?? "")}">—</span>`
       : esc(fmtMins(r.minutes));
 
     if (mode === "you") {
+      const choice = getLocalChoice(r.id);
+      const yesOn = choice === "yes" ? " on" : "";
+      const noOn  = choice === "no"  ? " on" : "";
+
       return `
         <div class="member ${st}">
           <div class="left">
-            <div class="name">${name}${opted}</div>
+            <div class="name">${name}</div>
             <div class="sub">ID: ${id}</div>
           </div>
           <div class="actions">
             <div class="right">${right}</div>
 
-            <span class="abtn yes" data-avail="yes" data-avail-id="${esc(r.id)}">
-              <span class="ck" data-ck="yes" aria-hidden="true"></span>
+            <span class="abtn yes${yesOn}" data-local="yes" data-local-id="${esc(r.id)}">
+              <span class="ck" aria-hidden="true"></span>
               <span class="lbl">✅ YES</span>
             </span>
 
-            <span class="abtn no" data-avail="no" data-avail-id="${esc(r.id)}">
-              <span class="ck" data-ck="no" aria-hidden="true"></span>
+            <span class="abtn no${noOn}" data-local="no" data-local-id="${esc(r.id)}">
+              <span class="ck" aria-hidden="true"></span>
               <span class="lbl">❌ NO</span>
             </span>
 
@@ -231,7 +244,7 @@
     return `
       <div class="member ${st}">
         <div class="left">
-          <div class="name">${name}${opted}</div>
+          <div class="name">${name}</div>
           <div class="sub">ID: ${id}</div>
         </div>
         <div class="actions">
@@ -345,6 +358,53 @@
     }
   }
 
+  // 🔗 Chain sitters (REAL server opt-in/out)
+  function renderChainSitters(state) {
+    const list = document.getElementById("rt-chain-list");
+    const count = document.getElementById("rt-chain-count");
+    if (!list || !count) return;
+
+    const cs = (state.chain_sitters || []);
+    count.textContent = String(cs.length);
+
+    if (!cs.length) {
+      list.innerHTML = `<div class="section-empty">No chain sitters configured.</div>`;
+      return;
+    }
+
+    const me = detectTornId() || "";
+    list.innerHTML = "";
+
+    for (const m of cs) {
+      const mid = String(m.id || "");
+      const nm = esc(m.name || mid || "—");
+      const opted = !!m.available;
+
+      const canToggle = !!me && me === mid; // only YOU can change YOUR opt
+      const btnLabel = opted ? "✅ OPTED IN" : "⬜ OPTED OUT";
+      const btnCls = opted ? "on" : "";
+
+      list.insertAdjacentHTML("beforeend", `
+        <div class="member ${m.status || "offline"}">
+          <div class="left">
+            <div class="name">${nm}</div>
+            <div class="sub">ID: ${esc(mid)}</div>
+          </div>
+          <div class="actions">
+            <span class="abtn chain ${btnCls}" data-chain-toggle="${esc(mid)}" ${canToggle ? "" : 'data-disabled="1"'}>${btnLabel}</span>
+          </div>
+        </div>
+      `);
+    }
+
+    // visually disable non-self toggles
+    list.querySelectorAll('[data-disabled="1"]').forEach(el => {
+      el.style.opacity = "0.55";
+      el.style.pointerEvents = "none";
+      el.title = "Only the chain sitter can toggle their own opt status.";
+    });
+  }
+
   function render(state) {
     const $ = (id) => document.getElementById(id);
 
@@ -363,9 +423,9 @@
     $("rt-idle").textContent = `🟡 ${c.idle ?? 0}`;
     $("rt-offline").textContent = `🔴 ${c.offline ?? 0}`;
     $("rt-hospital").textContent = `🏥 ${c.hospital ?? 0}`;
-    $("rt-avail").textContent = `✅ Avail: ${state.available_count ?? 0}`;
 
     renderDeals(state);
+    renderChainSitters(state);
 
     const f = state.faction || {};
     $("rt-you-title").textContent = `${(f.tag ? `[${f.tag}] ` : "")}${f.name || ""}`.trim() || "—";
@@ -422,7 +482,7 @@
     tickHospitalTimers();
   }
 
-  // ✅ SCOPED CSS ONLY (+ checkbox styling)
+  // ✅ SCOPED CSS ONLY
   GM_addStyle(`
     #wrath-overlay, #wrath-overlay * { pointer-events: auto !important; }
 
@@ -513,7 +573,6 @@
       display:inline-flex; align-items:center; gap:6px; }
     #wrath-overlay .abtn:active{ transform: translateY(1px); }
 
-    /* Checkbox (unchecked default) */
     #wrath-overlay .ck{
       width:14px; height:14px; border-radius:4px;
       border:1px solid rgba(255,255,255,.28) !important;
@@ -531,37 +590,23 @@
       opacity:0;
     }
 
-    /* YES/NO base + highlight */
     #wrath-overlay .abtn.yes{ border-color: rgba(0,255,102,.22) !important; }
     #wrath-overlay .abtn.no{  border-color: rgba(255,51,51,.22) !important; }
 
-    /* highlight ONLY when clicked */
     #wrath-overlay .abtn.yes.on{ border-color: rgba(0,255,102,.55) !important; box-shadow: 0 0 18px rgba(0,255,102,.14); filter:brightness(1.08); }
     #wrath-overlay .abtn.no.on{  border-color: rgba(255,51,51,.55) !important; box-shadow: 0 0 18px rgba(255,51,51,.14); filter:brightness(1.08); }
 
-    /* Checked checkbox visuals */
-    #wrath-overlay .abtn.yes.on .ck{
-      border-color: rgba(0,255,102,.55) !important;
-      box-shadow: 0 0 14px rgba(0,255,102,.12);
-    }
-    #wrath-overlay .abtn.yes.on .ck:after{
-      border-left-color: rgba(0,255,102,.95) !important;
-      border-bottom-color: rgba(0,255,102,.95) !important;
-      opacity:1;
-    }
+    #wrath-overlay .abtn.yes.on .ck{ border-color: rgba(0,255,102,.55) !important; box-shadow: 0 0 14px rgba(0,255,102,.12); }
+    #wrath-overlay .abtn.yes.on .ck:after{ border-left-color: rgba(0,255,102,.95) !important; border-bottom-color: rgba(0,255,102,.95) !important; opacity:1; }
 
-    #wrath-overlay .abtn.no.on .ck{
-      border-color: rgba(255,51,51,.55) !important;
-      box-shadow: 0 0 14px rgba(255,51,51,.12);
-    }
-    #wrath-overlay .abtn.no.on .ck:after{
-      border-left-color: rgba(255,51,51,.95) !important;
-      border-bottom-color: rgba(255,51,51,.95) !important;
-      opacity:1;
-    }
+    #wrath-overlay .abtn.no.on .ck{ border-color: rgba(255,51,51,.55) !important; box-shadow: 0 0 14px rgba(255,51,51,.12); }
+    #wrath-overlay .abtn.no.on .ck:after{ border-left-color: rgba(255,51,51,.95) !important; border-bottom-color: rgba(255,51,51,.95) !important; opacity:1; }
 
     #wrath-overlay .abtn.attack{ border-color: rgba(255,122,24,.45) !important; }
     #wrath-overlay .abtn.bounty{ border-color: rgba(255,42,42,.40) !important; }
+
+    #wrath-overlay .abtn.chain{ border-color: rgba(255,210,74,.45) !important; }
+    #wrath-overlay .abtn.chain.on{ border-color: rgba(0,255,102,.55) !important; box-shadow: 0 0 16px rgba(0,255,102,.12); }
 
     #wrath-overlay .dealCard{ padding:10px; margin:6px 0; border-radius:14px; border:1px solid rgba(255,255,255,.08) !important;
       background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02)) !important;
@@ -579,12 +624,6 @@
     #wrath-overlay .dealGrid textarea{ grid-column:1 / -1; min-height:70px; resize:vertical; }
 
     #wrath-overlay .section-empty{ opacity:.85; font-size:12px; padding:8px 2px; }
-
-    @media (max-width:520px){
-      #wrath-overlay .name{ max-width:52vw; }
-      #wrath-overlay .abtn{ padding:6px 9px; }
-      #wrath-overlay .dealGrid{ grid-template-columns:1fr; }
-    }
   `);
 
   async function refreshState() {
@@ -631,7 +670,6 @@
           <span class="pill" id="rt-idle">🟡 0</span>
           <span class="pill" id="rt-offline">🔴 0</span>
           <span class="pill" id="rt-hospital">🏥 0</span>
-          <span class="pill" id="rt-avail">✅ Avail: 0</span>
 
           <span class="btn" id="rt-open-app">Open App</span>
           <span class="btn" id="rt-refresh">Refresh</span>
@@ -640,6 +678,14 @@
 
       <div id="rt-error" class="err" style="display:none;"></div>
       <div id="rt-war" class="warbox" style="display:none;"></div>
+
+      <details class="collapsible" id="rt-chain" open>
+        <summary><span>🔗 CHAIN SITTERS (REAL OPT)</span><span class="pill" id="rt-chain-count">0</span></summary>
+        <div class="body">
+          <div class="section-empty" style="margin-bottom:6px;">Only you can toggle your own opt status.</div>
+          <div id="rt-chain-list"></div>
+        </div>
+      </details>
 
       <details class="collapsible" id="rt-deals" open>
         <summary><span>💊 MED DEALS</span><span class="pill" id="rt-deals-count">0</span></summary>
@@ -766,60 +812,70 @@
       openAppPanelWithId(tid);
     }, true);
 
-    // ✅ YES/NO availability per member (connected highlight + checkboxes)
+    // ✅ LOCAL YES/NO (stays checked, NOT connected to server)
     overlay.addEventListener("click", async (e) => {
       const target = e.target;
       if (!(target instanceof HTMLElement)) return;
 
-      const btn = target.closest("[data-avail][data-avail-id]");
+      const btn = target.closest("[data-local][data-local-id]");
       if (!btn) return;
 
       e.preventDefault(); e.stopPropagation();
 
-      const memberId = btn.getAttribute("data-avail-id");
-      const which = btn.getAttribute("data-avail"); // "yes" or "no"
-      const available = (which === "yes");
+      const memberId = btn.getAttribute("data-local-id");
+      const which = btn.getAttribute("data-local"); // "yes" or "no"
 
-      const err = document.getElementById("rt-error");
-      if (err) { err.style.display = "none"; err.textContent = ""; }
+      const row = btn.closest(".member");
+      if (!row) return;
 
-      const memberRow = btn.closest(".member");
-      const yesBtn = memberRow ? memberRow.querySelector('[data-avail="yes"][data-avail-id]') : null;
-      const noBtn  = memberRow ? memberRow.querySelector('[data-avail="no"][data-avail-id]') : null;
+      const yesBtn = row.querySelector('[data-local="yes"][data-local-id]');
+      const noBtn  = row.querySelector('[data-local="no"][data-local-id]');
 
-      // instant UI toggle
-      if (yesBtn && noBtn) {
-        if (available) {
-          yesBtn.classList.add("on");
-          noBtn.classList.remove("on");
-        } else {
-          noBtn.classList.add("on");
-          yesBtn.classList.remove("on");
-        }
+      if (which === "yes") {
+        setLocalChoice(memberId, "yes");
+        if (yesBtn) yesBtn.classList.add("on");
+        if (noBtn)  noBtn.classList.remove("on");
+      } else {
+        setLocalChoice(memberId, "no");
+        if (noBtn)  noBtn.classList.add("on");
+        if (yesBtn) yesBtn.classList.remove("on");
       }
+    }, true);
 
-      // disable both while saving
-      const allBtns = memberRow ? memberRow.querySelectorAll("[data-avail][data-avail-id]") : [btn];
-      allBtns.forEach(b => { if (b instanceof HTMLElement) b.style.pointerEvents = "none"; });
+    // 🔗 Chain sitter toggle (REAL server)
+    overlay.addEventListener("click", async (e) => {
+      const target = e.target;
+      if (!(target instanceof HTMLElement)) return;
 
-      // ✅ FIX: change ONLY label text, don’t destroy checkbox HTML
-      const lbl = btn.querySelector(".lbl");
-      const oldLbl = lbl ? lbl.textContent : "";
-      if (lbl) lbl.textContent = available ? "⏳ YES..." : "⏳ NO...";
+      const btn = target.closest("[data-chain-toggle]");
+      if (!btn) return;
 
-      const res = await postAvailability(memberId, available, "");
+      e.preventDefault(); e.stopPropagation();
+
+      const me = detectTornId();
+      if (!me) return;
+
+      const tornId = btn.getAttribute("data-chain-toggle");
+      if (!tornId || String(tornId) !== String(me)) return;
+
+      const isOn = btn.classList.contains("on");
+      btn.style.pointerEvents = "none";
+      const old = btn.textContent;
+      btn.textContent = "⏳ Saving...";
+
+      const res = await postAvailability(tornId, !isOn, me);
+
+      btn.style.pointerEvents = "";
+      btn.textContent = old || (isOn ? "⬜ OPTED OUT" : "✅ OPTED IN");
+
       if (!res.ok) {
-        allBtns.forEach(b => { if (b instanceof HTMLElement) b.style.pointerEvents = ""; });
-        if (lbl) lbl.textContent = oldLbl || (available ? "✅ YES" : "❌ NO");
-
+        const err = document.getElementById("rt-error");
         if (err) {
           err.style.display = "block";
           err.textContent =
-            "Failed to update availability\n" +
+            "Failed to update chain sitter opt\n" +
             (typeof res.body === "string" ? res.body : JSON.stringify(res.body, null, 2));
         }
-
-        await refreshState();
         return;
       }
 
@@ -880,10 +936,11 @@
       await refreshState();
     }, true);
 
-    // 💊 Deal Done delete
+    // 💊 Deal Done delete (server authoritative)
     overlay.addEventListener("click", async (e) => {
       const target = e.target;
       if (!(target instanceof HTMLElement)) return;
+
       const btn = target.closest("[data-deal-del]");
       if (!btn) return;
 
@@ -898,27 +955,21 @@
       const err = document.getElementById("rt-error");
       if (err) { err.style.display = "none"; err.textContent = ""; }
 
-      // optimistic remove
-      const card = btn.closest(".dealCard");
-      if (card) card.remove();
-
-      const list = document.getElementById("rt-deals-list");
-      const countEl = document.getElementById("rt-deals-count");
-      if (list && countEl) {
-        const remaining = list.querySelectorAll(".dealCard").length;
-        countEl.textContent = String(remaining);
-        if (remaining === 0) list.innerHTML = `<div class="section-empty">No deals logged yet.</div>`;
-      }
+      btn.style.pointerEvents = "none";
+      const old = btn.textContent;
+      btn.textContent = "⏳ Removing...";
 
       const res = await deleteMedDeal(dealId, requesterId);
+
       if (!res.ok) {
+        btn.style.pointerEvents = "";
+        btn.textContent = old || "🗑 Deal Done";
         if (err) {
           err.style.display = "block";
           err.textContent =
             "Failed to delete deal\n" +
             (typeof res.body === "string" ? res.body : JSON.stringify(res.body, null, 2));
         }
-        await refreshState();
         return;
       }
 

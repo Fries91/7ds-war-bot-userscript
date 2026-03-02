@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         7DS*: Wrath War-Bot 🛡️ (Wrath Theme + Collapsible + Draggable) [SCOPED FIX + MED DEALS]
+// @name         7DS*: Wrath War-Bot 🛡️ (Wrath Theme + Collapsible + Draggable) [SCOPED FIX + MED DEALS DROPDOWNS]
 // @namespace    7ds-wrath-warbot
-// @version      7.1.0
-// @description  Wrath-themed shield overlay matching app.py. Uses /state (CSP-proof). OPT (token 666). OFFLINE sections collapsible. Shield is DRAGGABLE. Tap shield toggles open/close. YOUR faction has 🎯 Bounty buttons. ENEMY has ⚔️ Attack buttons. 💊 NEW: Med Deals section (add + view + delete your own). ✅ FIX: All CSS is scoped to #wrath-overlay/#wrath-shield so Torn Home Screen is NOT affected.
+// @version      7.2.0
+// @description  Wrath-themed shield overlay matching app.py. Uses /state (CSP-proof). OPT (token 666). OFFLINE sections collapsible. Shield is DRAGGABLE. Tap shield toggles open/close. YOUR faction has 🎯 Bounty buttons. ENEMY has ⚔️ Attack buttons. 💊 NEW: Med Deals (Enemy Faction dropdown + Member dropdown + Accept + Delete). ✅ FIX: All CSS is scoped to #wrath-overlay/#wrath-shield so Torn Home Screen is NOT affected.
 // @match        https://www.torn.com/*
 // @match        https://torn.com/*
 // @grant        GM_addStyle
@@ -19,11 +19,15 @@
   const API_STATE = `${BASE_URL}/state`;
   const API_AVAIL = `${BASE_URL}/api/availability`;
   const API_DEALS = `${BASE_URL}/api/med_deals`;
+
   const AVAIL_TOKEN = "666";
 
   const SHIELD_TOP_DEFAULT = 110;
   const SHIELD_RIGHT_DEFAULT = 12;
   const REFRESH_MS = 8000;
+
+  // Stores enemy factions seen so dropdown becomes richer over time
+  const ENEMY_FACTIONS_KEY = "wrath_enemy_factions_v1";
 
   // ========== helpers ==========
   function esc(s) {
@@ -264,10 +268,79 @@
     return tid;
   }
 
+  // ====== Enemy faction dropdown memory ======
+  function getSavedEnemyFactions() {
+    const v = GM_getValue(ENEMY_FACTIONS_KEY, []);
+    return Array.isArray(v) ? v.filter(x => typeof x === "string" && x.trim()) : [];
+  }
+  function saveEnemyFactions(list) {
+    const clean = Array.from(new Set((list || []).map(x => (x || "").trim()).filter(Boolean)));
+    GM_setValue(ENEMY_FACTIONS_KEY, clean.slice(0, 50));
+  }
+  function buildEnemyFactionOptions(state) {
+    const fromStateDeals = (state.med_deals || [])
+      .map(d => (d.enemy_faction || "").trim())
+      .filter(Boolean);
+
+    const fromWar = [ (state.war && state.war.opponent) ? String(state.war.opponent).trim() : "" ].filter(Boolean);
+
+    const saved = getSavedEnemyFactions();
+
+    const combined = Array.from(new Set([...fromWar, ...fromStateDeals, ...saved].filter(Boolean)));
+    saveEnemyFactions(combined);
+    return combined;
+  }
+
+  function buildMemberOptions(state) {
+    const rows = (state.rows || []);
+    const members = rows
+      .filter(r => r && r.id && r.name)
+      .map(r => ({ id: String(r.id), name: String(r.name) }))
+      .sort((a,b) => a.name.localeCompare(b.name));
+    return members;
+  }
+
+  function setSelectOptions(selectEl, items, placeholderText) {
+    if (!selectEl) return;
+    selectEl.innerHTML = "";
+    const ph = document.createElement("option");
+    ph.value = "";
+    ph.textContent = placeholderText || "Select…";
+    selectEl.appendChild(ph);
+
+    for (const it of items) {
+      const opt = document.createElement("option");
+      if (typeof it === "string") {
+        opt.value = it;
+        opt.textContent = it;
+      } else {
+        opt.value = it.id;
+        opt.textContent = `${it.name} (${it.id})`;
+      }
+      selectEl.appendChild(opt);
+    }
+  }
+
   function renderDeals(state) {
     const list = document.getElementById("rt-deals-list");
     const count = document.getElementById("rt-deals-count");
     if (!list || !count) return;
+
+    // populate dropdowns
+    const enemySel = document.getElementById("deal-enemy-faction");
+    const memberSel = document.getElementById("deal-member");
+    const enemyOptions = buildEnemyFactionOptions(state);
+    const memberOptions = buildMemberOptions(state);
+
+    // preserve selection if still present
+    const prevEnemy = enemySel ? enemySel.value : "";
+    const prevMember = memberSel ? memberSel.value : "";
+
+    setSelectOptions(enemySel, enemyOptions, "Enemy faction…");
+    setSelectOptions(memberSel, memberOptions, "Our member…");
+
+    if (enemySel && prevEnemy && enemyOptions.includes(prevEnemy)) enemySel.value = prevEnemy;
+    if (memberSel && prevMember && memberOptions.some(m => m.id === prevMember)) memberSel.value = prevMember;
 
     const deals = (state.med_deals || []);
     count.textContent = String(deals.length);
@@ -283,23 +356,26 @@
     for (const d of deals) {
       const canDel = myId && String(d.reporter_id || "") === String(myId);
 
-      const enemy = (d.enemy_player_name || d.enemy_player_id)
-        ? `${esc(d.enemy_player_name || "—")}${d.enemy_player_id ? ` (${esc(d.enemy_player_id)})` : ""}`
+      const enemyFaction = esc(d.enemy_faction || "—");
+      const member = (d.member_name || d.member_id)
+        ? `${esc(d.member_name || "—")}${d.member_id ? ` (${esc(d.member_id)})` : ""}`
         : "—";
 
-      const price = (d.price !== null && d.price !== undefined) ? `$${esc(d.price)}` : "—";
+      const item = esc(d.item || "—");
+      const qty = (d.qty ?? 1);
+      const price = (d.price !== null && d.price !== undefined && d.price !== "") ? `$${esc(d.price)}` : "—";
       const notes = d.notes ? esc(d.notes) : "";
 
       list.insertAdjacentHTML("beforeend", `
         <div class="dealCard" data-deal-id="${esc(d.id)}">
-          <div class="dealRow"><div class="dealLabel">When</div><div class="dealStrong">${esc(d.created_at || "—")}</div></div>
-          <div class="dealRow"><div class="dealLabel">Reporter</div><div class="dealStrong">${esc(d.reporter_name || d.reporter_id || "—")}</div></div>
-          <div class="dealRow"><div class="dealLabel">Enemy</div><div class="dealStrong">${enemy}</div></div>
-          <div class="dealRow"><div class="dealLabel">Item</div><div class="dealStrong">${esc(d.item || "—")} ×${esc(d.qty ?? 1)}</div></div>
+          <div class="dealRow"><div class="dealLabel">Enemy Faction</div><div class="dealStrong">${enemyFaction}</div></div>
+          <div class="dealRow"><div class="dealLabel">Member</div><div class="dealStrong">${member}</div></div>
+          <div class="dealRow"><div class="dealLabel">Item</div><div class="dealStrong">${item} ×${esc(qty)}</div></div>
           <div class="dealRow"><div class="dealLabel">Price</div><div class="dealStrong">${price}</div></div>
           ${notes ? `<div class="dealRow"><div class="dealLabel">Notes</div><div class="dealStrong">${notes}</div></div>` : ""}
+          <div class="dealRow"><div class="dealLabel">Posted</div><div class="dealStrong">${esc(d.created_at || "—")}</div></div>
           <div class="dealActions" style="margin-top:8px; display:flex; justify-content:flex-end;">
-            ${canDel ? `<span class="abtn dealDel" data-deal-del="${esc(d.id)}">🗑 Delete</span>` : ``}
+            ${canDel ? `<span class="abtn dealDel" data-deal-del="${esc(d.id)}">🗑 Deal Done</span>` : ``}
           </div>
         </div>
       `);
@@ -411,7 +487,7 @@
   function savePos(top, left) { GM_setValue(POS_KEY, { top, left }); }
   function clamp(val, min, max) { return Math.min(max, Math.max(min, val)); }
 
-  // ✅ SCOPED CSS ONLY
+  // ✅ SCOPED CSS ONLY (plus dropdown inputs)
   GM_addStyle(`
     #wrath-overlay, #wrath-overlay * { pointer-events: auto !important; }
 
@@ -695,7 +771,9 @@
       background: linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.02)) !important;
     }
     #wrath-overlay .dealGrid{ display:grid; grid-template-columns:1fr 1fr; gap:8px; }
-    #wrath-overlay .dealGrid input, #wrath-overlay .dealGrid textarea{
+    #wrath-overlay .dealGrid input, 
+    #wrath-overlay .dealGrid textarea,
+    #wrath-overlay .dealGrid select{
       width:100%;
       box-sizing:border-box;
       padding:10px;
@@ -708,6 +786,7 @@
     }
     #wrath-overlay .dealGrid textarea{ grid-column: 1 / -1; min-height:70px; resize:vertical; }
     #wrath-overlay .dealHint{ font-size:11px; opacity:.8; margin-top:8px; }
+
     @media (max-width: 520px){
       #wrath-overlay .name{ max-width: 52vw; }
       #wrath-overlay .abtn{ padding:6px 9px; }
@@ -762,17 +841,29 @@
 
           <div class="dealForm">
             <div class="dealGrid">
+              <select id="deal-enemy-faction">
+                <option value="">Enemy faction…</option>
+              </select>
+              <select id="deal-member">
+                <option value="">Our member…</option>
+              </select>
+
               <input id="deal-item" placeholder="Item (ex: Xanax, Vicodin)" />
               <input id="deal-qty" placeholder="Qty (ex: 10)" inputmode="numeric" />
+
               <input id="deal-price" placeholder="Price each (optional)" inputmode="numeric" />
-              <input id="deal-enemy-id" placeholder="Enemy player ID (optional)" inputmode="numeric" />
-              <input id="deal-enemy-name" placeholder="Enemy name (optional)" />
-              <textarea id="deal-notes" placeholder="Notes (optional) — terms, delivery, proof, etc."></textarea>
+              <input id="deal-proof" placeholder="Proof link / reference (optional)" />
+
+              <textarea id="deal-notes" placeholder="Notes (optional) — terms, delivery, etc."></textarea>
             </div>
+
             <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:10px;">
-              <span class="abtn" id="deal-submit">💊 Add Deal</span>
+              <span class="abtn" id="deal-submit">✅ Accept / Post Deal</span>
             </div>
-            <div class="dealHint">Tip: only the person who added a deal can delete it (trash icon).</div>
+
+            <div class="dealHint">
+              Enemy faction + member are required. Only the person who posts a deal can delete it (“Deal Done”).
+            </div>
           </div>
         </div>
       </details>
@@ -954,61 +1045,96 @@
       }
     }, true);
 
-    // 💊 Add Deal
+    // 💊 Accept / Post Deal
     document.getElementById("deal-submit").addEventListener("click", async (e) => {
       e.preventDefault(); e.stopPropagation();
+
       const tid = cachedId || (await ensureIdOrWarn());
       if (!tid) return;
 
       const reporterName = detectPlayerName();
 
+      const enemyFaction = (document.getElementById("deal-enemy-faction").value || "").trim();
+      const memberId = (document.getElementById("deal-member").value || "").trim();
+
+      const memberOpt = document.querySelector(`#deal-member option[value="${CSS.escape(memberId)}"]`);
+      const memberName = memberOpt ? memberOpt.textContent.replace(/\s*\(\d+\)\s*$/, "").trim() : "";
+
       const item = (document.getElementById("deal-item").value || "").trim();
-      const qty = (document.getElementById("deal-qty").value || "").trim();
-      const price = (document.getElementById("deal-price").value || "").trim();
-      const enemyId = (document.getElementById("deal-enemy-id").value || "").trim();
-      const enemyName = (document.getElementById("deal-enemy-name").value || "").trim();
+      const qtyRaw = (document.getElementById("deal-qty").value || "").trim();
+      const priceRaw = (document.getElementById("deal-price").value || "").trim();
+      const proof = (document.getElementById("deal-proof").value || "").trim();
       const notes = (document.getElementById("deal-notes").value || "").trim();
 
+      const err = document.getElementById("rt-error");
+
+      if (!enemyFaction) {
+        err.style.display = "block";
+        err.textContent = "Med Deals: Please select an enemy faction.";
+        return;
+      }
+      if (!memberId) {
+        err.style.display = "block";
+        err.textContent = "Med Deals: Please select one of our members.";
+        return;
+      }
       if (!item) {
-        const err = document.getElementById("rt-error");
         err.style.display = "block";
         err.textContent = "Med Deals: Item is required.";
         return;
       }
 
+      const qty = qtyRaw ? Number(qtyRaw) : 1;
+      if (!Number.isFinite(qty) || qty <= 0) {
+        err.style.display = "block";
+        err.textContent = "Med Deals: Qty must be a number > 0.";
+        return;
+      }
+
+      let price = null;
+      if (priceRaw) {
+        const p = Number(priceRaw);
+        if (!Number.isFinite(p) || p < 0) {
+          err.style.display = "block";
+          err.textContent = "Med Deals: Price must be a valid number (or leave blank).";
+          return;
+        }
+        price = p;
+      }
+
       const payload = {
         reporter_id: String(tid),
         reporter_name: reporterName || "",
+        enemy_faction: enemyFaction,
+        member_id: String(memberId),
+        member_name: memberName || "",
         item,
-        qty: qty ? Number(qty) : 1,
-        price: price ? Number(price) : null,
-        enemy_player_id: enemyId || null,
-        enemy_player_name: enemyName || null,
+        qty,
+        price,
+        proof: proof || null,
         notes: notes || null,
       };
 
       const res = await postMedDeal(payload);
       if (!res.ok) {
-        const err = document.getElementById("rt-error");
         err.style.display = "block";
         err.textContent =
-          "Failed to add deal\n" +
+          "Failed to post deal\n" +
           (typeof res.body === "string" ? res.body : JSON.stringify(res.body, null, 2));
         return;
       }
 
-      // clear form
+      // Clear inputs but keep dropdown selections (usually handy)
       document.getElementById("deal-item").value = "";
       document.getElementById("deal-qty").value = "";
       document.getElementById("deal-price").value = "";
-      document.getElementById("deal-enemy-id").value = "";
-      document.getElementById("deal-enemy-name").value = "";
+      document.getElementById("deal-proof").value = "";
       document.getElementById("deal-notes").value = "";
 
       await refreshState();
     }, true);
 
-    // 💊 Delete Deal (delegated)
+    // 💊 Delete Deal (Deal Done)
     overlay.addEventListener("click", async (e) => {
       const t = e.target;
       if (!(t instanceof HTMLElement)) return;

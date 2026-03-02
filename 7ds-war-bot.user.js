@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         7DS*: Wrath War-Bot 🛡️ (Wrath Theme + Collapsible + Draggable) [SCOPED FIX + MED DEALS + LOCAL YES/NO + CHAIN SITTERS]
 // @namespace    7ds-wrath-warbot
-// @version      7.7.2
-// @description  Wrath-themed shield overlay matching app.py. Uses /state (CSP-proof). Shield draggable + tap to open/close. ✅ YES/NO is LOCAL only (stays checked, NOT tied to server). 🔗 Chain Sitters section shows REAL Opt In/Out (server, self-only). 💊 Med Deals delete removes instantly from screen + updates count, then deletes on server (DELETE BODY to avoid 405).
+// @version      7.8.0
+// @description  Wrath-themed shield overlay matching app.py. Uses /state (CSP-proof). Shield draggable + tap to open/close. ✅ YES/NO is LOCAL only. 🔗 OPT IN button beside every member (self-only). Chain Sitters box shows ONLY opted-in members. 💊 Med Deals delete removes instantly from screen + updates count, then deletes on server (DELETE BODY to avoid 405).
 // @match        https://www.torn.com/*
 // @match        https://torn.com/*
 // @grant        GM_addStyle
@@ -104,7 +104,7 @@
     return "";
   }
 
-  // 🔗 CHAIN SITTER Opt In/Out (server)
+  // 🔗 OPT IN/OUT (server) — self-only enforced by server
   function postAvailability(tornId, available, requesterId) {
     return httpJson(
       "POST",
@@ -206,7 +206,7 @@
     return `https://www.torn.com/bounties.php?p=add&XID=${encodeURIComponent(String(id || ""))}`;
   }
 
-  function memberHTML(r, st, mode) {
+  function memberHTML(r, st, mode, meId) {
     const name = esc(r.name || r.id || "Unknown");
     const id = esc(r.id || "");
 
@@ -219,6 +219,13 @@
       const yesOn = choice === "yes" ? " on" : "";
       const noOn  = choice === "no"  ? " on" : "";
 
+      // 🔗 OPT IN button beside each member (self-only)
+      const isMe = !!meId && String(meId) === String(r.id);
+      const opted = !!r.available;
+      const chainLabel = opted ? "✅ CHAIN SITTER" : "🔗 OPT IN";
+      const chainCls = opted ? " on" : "";
+      const chainDisabled = isMe ? "" : 'data-disabled="1" title="Only you can toggle your own opt status."';
+
       return `
         <div class="member ${st}">
           <div class="left">
@@ -227,6 +234,10 @@
           </div>
           <div class="actions">
             <div class="right">${right}</div>
+
+            <span class="abtn chain${chainCls}" data-chain-toggle="${esc(r.id)}" ${chainDisabled}>
+              ${chainLabel}
+            </span>
 
             <span class="abtn yes${yesOn}" data-local="yes" data-local-id="${esc(r.id)}">
               <span class="ck" aria-hidden="true"></span>
@@ -258,13 +269,13 @@
     `;
   }
 
-  function setList(el, arr, st, emptyText, mode) {
+  function setList(el, arr, st, emptyText, mode, meId) {
     el.innerHTML = "";
     if (!arr.length) {
       el.innerHTML = `<div class="section-empty">${esc(emptyText)}</div>`;
       return;
     }
-    for (const r of arr) el.insertAdjacentHTML("beforeend", memberHTML(r, st, mode));
+    for (const r of arr) el.insertAdjacentHTML("beforeend", memberHTML(r, st, mode, meId));
   }
 
   function buildEnemyMemberOptions(state) {
@@ -357,15 +368,29 @@
     }
   }
 
-  // Chain sitters derived from state.rows where available exists (server truth)
+  // ✅ Chain Sitters = ONLY opted-in members
+  // Prefer state.chain_sitters if app.py provides it; else fallback to rows where available===true
   function buildChainSittersFromState(state) {
+    const fromServer = Array.isArray(state.chain_sitters) ? state.chain_sitters : null;
+    if (fromServer) {
+      return fromServer
+        .filter(m => m && m.id)
+        .map(m => ({
+          id: String(m.id),
+          name: String(m.name || m.id),
+          status: String(m.status || "offline"),
+          available: true
+        }))
+        .sort((a,b) => a.name.localeCompare(b.name));
+    }
+
     return (state.rows || [])
-      .filter(r => r && r.id && typeof r.available !== "undefined")
+      .filter(r => r && r.id && r.available === true)
       .map(r => ({
         id: String(r.id),
         name: String(r.name || r.id),
         status: String(r.status || "offline"),
-        available: !!r.available,
+        available: true,
       }))
       .sort((a,b) => a.name.localeCompare(b.name));
   }
@@ -379,21 +404,14 @@
     count.textContent = String(cs.length);
 
     if (!cs.length) {
-      list.innerHTML = `<div class="section-empty">No chain sitters found in /state.</div>`;
+      list.innerHTML = `<div class="section-empty">No one opted in yet.</div>`;
       return;
     }
 
-    const me = detectTornId() || "";
     list.innerHTML = "";
-
     for (const m of cs) {
       const mid = String(m.id || "");
       const nm = esc(m.name || mid || "—");
-      const opted = !!m.available;
-      const canToggle = !!me && me === mid;
-
-      const btnLabel = opted ? "✅ OPTED IN" : "⬜ OPTED OUT";
-      const btnCls = opted ? "on" : "";
 
       list.insertAdjacentHTML("beforeend", `
         <div class="member ${m.status || "offline"}">
@@ -402,17 +420,11 @@
             <div class="sub">ID: ${esc(mid)}</div>
           </div>
           <div class="actions">
-            <span class="abtn chain ${btnCls}" data-chain-toggle="${esc(mid)}" ${canToggle ? "" : 'data-disabled="1"'}>${btnLabel}</span>
+            <span class="pill">✅ OPTED IN</span>
           </div>
         </div>
       `);
     }
-
-    list.querySelectorAll('[data-disabled="1"]').forEach(el => {
-      el.style.opacity = "0.55";
-      el.style.pointerEvents = "none";
-      el.title = "Only you can toggle your own opt status.";
-    });
   }
 
   function render(state) {
@@ -456,16 +468,18 @@
       `;
     }
 
+    const meId = detectTornId() || "";
+
     const you = split(state.rows || []);
     $("rt-you-online-count").textContent = String(you.online.length);
     $("rt-you-idle-count").textContent = String(you.idle.length);
     $("rt-you-hosp-count").textContent = String(you.hosp.length);
     $("rt-you-offline-count").textContent = String(you.offline.length);
 
-    setList($("rt-you-online"), you.online, "online", "No one online right now.", "you");
-    setList($("rt-you-idle"), you.idle, "idle", "No one idle right now.", "you");
-    setList($("rt-you-hosp"), you.hosp, "hospital", "No one in hospital right now.", "you");
-    setList($("rt-you-offline-list"), you.offline, "offline", "No one offline right now.", "you");
+    setList($("rt-you-online"), you.online, "online", "No one online right now.", "you", meId);
+    setList($("rt-you-idle"), you.idle, "idle", "No one idle right now.", "you", meId);
+    setList($("rt-you-hosp"), you.hosp, "hospital", "No one in hospital right now.", "you", meId);
+    setList($("rt-you-offline-list"), you.offline, "offline", "No one offline right now.", "you", meId);
 
     const enemy = state.enemy || {};
     const ef = enemy.faction || {};
@@ -483,10 +497,10 @@
       $("rt-them-hosp-count").textContent = String(them.hosp.length);
       $("rt-them-offline-count").textContent = String(them.offline.length);
 
-      setList($("rt-them-online"), them.online, "online", "No enemy online right now.", "enemy");
-      setList($("rt-them-idle"), them.idle, "idle", "No enemy idle right now.", "enemy");
-      setList($("rt-them-hosp"), them.hosp, "hospital", "No enemy in hospital right now.", "enemy");
-      setList($("rt-them-offline-list"), them.offline, "offline", "No enemy offline right now.", "enemy");
+      setList($("rt-them-online"), them.online, "online", "No enemy online right now.", "enemy", meId);
+      setList($("rt-them-idle"), them.idle, "idle", "No enemy idle right now.", "enemy", meId);
+      setList($("rt-them-hosp"), them.hosp, "hospital", "No enemy in hospital right now.", "enemy", meId);
+      setList($("rt-them-offline-list"), them.offline, "offline", "No enemy offline right now.", "enemy", meId);
     }
 
     tickHospitalTimers();
@@ -623,6 +637,7 @@
 
     #wrath-overlay .abtn.chain{ border-color: rgba(255,210,74,.45) !important; }
     #wrath-overlay .abtn.chain.on{ border-color: rgba(0,255,102,.55) !important; box-shadow: 0 0 16px rgba(0,255,102,.12); }
+    #wrath-overlay .abtn.chain[data-disabled="1"]{ opacity:.55; pointer-events:none; }
 
     #wrath-overlay .dealCard{ padding:10px; margin:6px 0; border-radius:14px; border:1px solid rgba(255,255,255,.08) !important;
       background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02)) !important;
@@ -716,9 +731,9 @@
       <div id="rt-war" class="warbox" style="display:none;"></div>
 
       <details class="collapsible" id="rt-chain" open>
-        <summary><span>🔗 CHAIN SITTERS (REAL OPT)</span><span class="pill" id="rt-chain-count">0</span></summary>
+        <summary><span>🔗 CHAIN SITTERS (OPTED IN)</span><span class="pill" id="rt-chain-count">0</span></summary>
         <div class="body">
-          <div class="section-empty" style="margin-bottom:6px;">Only you can toggle your own opt status.</div>
+          <div class="section-empty" style="margin-bottom:6px;">Use the 🔗 OPT IN button beside your own name to join/leave this list.</div>
           <div id="rt-chain-list"></div>
         </div>
       </details>
@@ -878,7 +893,7 @@
       }
     }, true);
 
-    // 🔗 Chain sitter toggle (REAL server, self-only)
+    // 🔗 OPT IN toggle (REAL server, self-only)
     overlay.addEventListener("click", async (e) => {
       const target = e.target;
       if (!(target instanceof HTMLElement)) return;
@@ -904,14 +919,14 @@
       WRATH_BUSY = false;
 
       btn.style.pointerEvents = "";
-      btn.textContent = old || (isOn ? "⬜ OPTED OUT" : "✅ OPTED IN");
+      btn.textContent = old || (isOn ? "🔗 OPT IN" : "✅ CHAIN SITTER");
 
       if (!res.ok) {
         const err = document.getElementById("rt-error");
         if (err) {
           err.style.display = "block";
           err.textContent =
-            "Failed to update chain sitter opt\n" +
+            "Failed to update opt status\n" +
             (typeof res.body === "string" ? res.body : JSON.stringify(res.body, null, 2));
         }
         return;

@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         7DS*: Wrath War-Bot 🛡️ (Wrath Theme Overlay)
+// @name         7DS*: Wrath War-Bot 🛡️ (Wrath Theme + Collapsible + Draggable)
 // @namespace    7ds-wrath-warbot
-// @version      6.7.0
-// @description  Shield overlay styled to MATCH your app.py 7DS Wrath theme. Uses /state (CSP-proof). OPT (token 666). "Open App" opens Render panel with ?xid=YOURID.
+// @version      6.8.0
+// @description  Wrath-themed shield overlay matching app.py. Uses /state (CSP-proof). OPT (token 666). OFFLINE sections collapsible. Shield is DRAGGABLE + CLICKABLE. "Open App" opens Render panel with ?xid=YOURID.
 // @match        https://www.torn.com/*
 // @match        https://torn.com/*
 // @grant        GM_addStyle
@@ -20,11 +20,13 @@
   const API_AVAIL = `${BASE_URL}/api/availability`;
   const AVAIL_TOKEN = "666";
 
-  const SHIELD_TOP = 110;
-  const SHIELD_RIGHT = 12;
+  // default position (used if no saved position)
+  const SHIELD_TOP_DEFAULT = 110;
+  const SHIELD_RIGHT_DEFAULT = 12;
 
   const REFRESH_MS = 8000;
 
+  // ========== helpers ==========
   function esc(s) {
     return (s ?? "").toString().replace(/[&<>"']/g, (m) => ({
       "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
@@ -67,15 +69,16 @@
     return null;
   }
 
-  function availKey(tornId) { return `wrath_avail_${tornId || "unknown"}`; }
-  function setLocalAvail(tornId, val) { GM_setValue(availKey(tornId), !!val); }
-  function getLocalAvail(tornId) { return !!GM_getValue(availKey(tornId), false); }
-
   function detectPlayerName() {
     const t = (document.title || "").trim();
     if (t && t.length <= 60) return t.replace(/\s+\-\s+Torn.*$/i, "").trim();
     return "";
   }
+
+  // local opt state
+  function availKey(tornId) { return `wrath_avail_${tornId || "unknown"}`; }
+  function setLocalAvail(tornId, val) { GM_setValue(availKey(tornId), !!val); }
+  function getLocalAvail(tornId) { return !!GM_getValue(availKey(tornId), false); }
 
   function postAvailability(tornId, available, name) {
     return new Promise((resolve) => {
@@ -99,248 +102,13 @@
     window.open(url, "_blank", "noopener,noreferrer");
   }
 
-  // ====== WRATH THEME STYLES (matches app.py) ======
-  GM_addStyle(`
-    #wrath-overlay, #wrath-overlay * { pointer-events: auto !important; }
-
-    :root{
-      --bg0:#070607;
-      --bg1:#0d0a0c;
-      --text:#f4f2f3;
-      --muted:rgba(244,242,243,.74);
-
-      --ember:#ff7a18;
-      --blood:#ff2a2a;
-      --gold:#ffd24a;
-      --violet:#b06cff;
-
-      --line:rgba(255,255,255,.10);
-      --cardBorder:rgba(255,255,255,.07);
-
-      --green:#00ff66;
-      --yellow:#ffd000;
-      --red:#ff3333;
-
-      --dangerBg:rgba(255,80,80,.12);
-      --dangerBorder:rgba(255,80,80,.25);
-
-      --glowRed: 0 0 14px rgba(255,42,42,.25), 0 0 26px rgba(255,42,42,.14);
-      --glowEmber: 0 0 14px rgba(255,122,24,.22), 0 0 28px rgba(255,122,24,.12);
-    }
-
-    #wrath-shield{
-      position:fixed; top:${SHIELD_TOP}px; right:${SHIELD_RIGHT}px;
-      z-index:2147483647;
-      width:48px; height:48px; border-radius:14px;
-      display:grid; place-items:center;
-      cursor:pointer; user-select:none; -webkit-tap-highlight-color:transparent;
-
-      background: linear-gradient(180deg, rgba(255,255,255,.09), rgba(255,255,255,.04));
-      border:1px solid rgba(255,255,255,.12);
-      box-shadow: 0 14px 34px rgba(0,0,0,.60), var(--glowRed);
-      color: var(--gold);
-      text-shadow: var(--glowEmber);
-      font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
-      font-size:22px;
-    }
-
-    #wrath-overlay{
-      position:fixed; inset:0; z-index:2147483646; display:none;
-      background:
-        radial-gradient(1200px 700px at 18% 10%, rgba(255,42,42,.10), transparent 55%),
-        radial-gradient(900px 600px at 82% 0%, rgba(255,122,24,.08), transparent 60%),
-        linear-gradient(180deg, var(--bg0), var(--bg1)) !important;
-      color: var(--text);
-      font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
-      overflow-y:auto;
-      padding:10px;
-      -webkit-text-size-adjust: 100%;
-    }
-
-    /* Keep overlay readable even if Torn injects weird CSS */
-    #wrath-overlay * { color: inherit !important; }
-
-    .sigil{
-      height:10px;
-      border-radius:999px;
-      background: linear-gradient(90deg, transparent, rgba(255,42,42,.55), rgba(255,122,24,.45), transparent) !important;
-      opacity:.9;
-      margin-bottom:10px;
-      position:relative;
-      overflow:hidden;
-      border:1px solid rgba(255,255,255,.06) !important;
-      box-shadow: var(--glowRed);
-    }
-    .sigil:after{
-      content:"";
-      position:absolute;
-      top:-40px; left:-60%;
-      width:40%;
-      height:120px;
-      background: linear-gradient(90deg, transparent, rgba(255,255,255,.10), transparent);
-      transform: rotate(18deg);
-      animation: wrath_sweep 5.8s linear infinite;
-      opacity:.5;
-    }
-    @keyframes wrath_sweep{
-      0%{ left:-60%; }
-      100%{ left:140%; }
-    }
-
-    .topbar { display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:10px; }
-    .title {
-      font-weight: 950;
-      letter-spacing: 1.1px;
-      font-size: 16px;
-      color: var(--gold) !important;
-      text-transform: uppercase;
-      text-shadow: var(--glowEmber);
-    }
-    .meta { font-size:12px; opacity:.96; display:flex; align-items:center; gap:8px; flex-wrap:wrap; color: var(--text) !important; }
-
-    .pill {
-      display:inline-flex;
-      align-items:center;
-      gap:6px;
-      padding:6px 10px;
-      border-radius:999px;
-      background: linear-gradient(180deg, rgba(255,255,255,.075), rgba(255,255,255,.04)) !important;
-      border:1px solid rgba(255,255,255,.10) !important;
-      font-size:12px;
-      white-space:nowrap;
-      color: var(--text) !important;
-    }
-
-    .btn {
-      cursor:pointer; user-select:none;
-      padding:6px 10px; border-radius:999px;
-      background: linear-gradient(180deg, rgba(255,255,255,.075), rgba(255,255,255,.04)) !important;
-      border:1px solid rgba(255,255,255,.12) !important;
-      font-size:12px; white-space:nowrap;
-      color: var(--text) !important;
-      box-shadow: 0 8px 18px rgba(0,0,0,.30);
-    }
-    .btn:active { transform: translateY(1px); }
-    .btn.on { border-color: rgba(0,255,102,.35) !important; box-shadow: 0 0 0 rgba(0,0,0,0), 0 0 18px rgba(0,255,102,.10); }
-    .btn.danger { border-color: rgba(255,42,42,.35) !important; }
-
-    .divider { margin:14px 0; height:1px; background:var(--line) !important; }
-
-    .section-title {
-      font-weight: 950;
-      letter-spacing: 1.0px;
-      margin-top: 10px;
-      margin-bottom: 6px;
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:10px;
-      flex-wrap:wrap;
-      color: var(--gold) !important;
-      text-shadow: var(--glowEmber);
-    }
-    .section-title .small { font-size:12px; opacity:.9; font-weight:700; color: var(--text) !important; text-shadow:none; }
-
-    h2 {
-      margin:12px 0 6px;
-      padding-bottom:6px;
-      border-bottom:1px solid rgba(255,255,255,.10) !important;
-      font-size:13px;
-      letter-spacing:.7px;
-      color: var(--text) !important;
-      text-transform: uppercase;
-      opacity: .95;
-      display:flex;
-      justify-content:space-between;
-      align-items:center;
-      gap:10px;
-    }
-
-    .member {
-      padding:9px 10px;
-      margin:6px 0;
-      border-radius:12px;
-      display:flex;
-      justify-content:space-between;
-      align-items:center;
-      gap:10px;
-      font-size:13px;
-      background: linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.02)) !important;
-      border:1px solid var(--cardBorder) !important;
-      color: var(--text) !important;
-      box-shadow: 0 10px 20px rgba(0,0,0,.22);
-      position: relative;
-      overflow: hidden;
-    }
-    .member:after{
-      content:"";
-      position:absolute;
-      inset:-1px;
-      background:
-        radial-gradient(260px 60px at 10% 0%, rgba(255,122,24,.10), transparent 65%),
-        radial-gradient(220px 55px at 90% 0%, rgba(255,42,42,.10), transparent 70%);
-      pointer-events:none;
-      opacity:.8;
-    }
-
-    .left { display:flex; flex-direction:column; gap:2px; min-width:0; position:relative; z-index:1; }
-    .name { font-weight:900; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:68vw; color: var(--text) !important; }
-    .sub { opacity:.82; font-size:11px; color: var(--text) !important; }
-    .right { opacity:.96; font-size:12px; white-space:nowrap; color: var(--text) !important; position:relative; z-index:1; }
-
-    .online{ border-left:4px solid var(--green) !important; }
-    .idle{ border-left:4px solid var(--yellow) !important; }
-    .offline{ border-left:4px solid var(--red) !important; box-shadow: var(--glowRed); }
-    .hospital{ border-left:4px solid var(--violet) !important; }
-
-    .section-empty { opacity:.85; font-size:12px; padding:8px 2px; color: var(--text) !important; }
-
-    .err {
-      margin-top:10px; padding:10px; border-radius:12px;
-      background: var(--dangerBg) !important;
-      border:1px solid var(--dangerBorder) !important;
-      font-size:12px; white-space:pre-wrap;
-      color: var(--text) !important;
-      box-shadow: var(--glowRed);
-    }
-
-    .warbox {
-      margin-top:10px; padding:10px; border-radius:14px;
-      background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03)) !important;
-      border:1px solid rgba(255,255,255,.10) !important;
-      font-size:12px; line-height:1.35;
-      color: var(--text) !important;
-      box-shadow: var(--glowEmber);
-    }
-    .warrow { display:flex; justify-content:space-between; gap:10px; margin:3px 0; }
-    .label { opacity:.8; color: var(--muted) !important; }
-
-    .hospTimer{
-      font-weight: 900;
-      letter-spacing: .4px;
-      text-shadow: var(--glowEmber);
-    }
-
-    @media (max-width: 520px){
-      .name{ max-width: 58vw; }
-    }
-  `);
-
-  function $(id) { return document.getElementById(id); }
-
-  function fmtMins(n) {
-    if (typeof n !== "number") return "—";
-    if (n < 60) return `${n}m`;
-    const h = Math.floor(n / 60), m = n % 60;
-    return `${h}h ${m}m`;
-  }
-
+  // ========== hospital countdown ==========
   function parseUntilToMs(until) {
     if (!until) return null;
     if (typeof until === "number") return until * 1000;
     const s = String(until).trim();
     if (!s) return null;
-    if (/^\d+$/.test(s)) return parseInt(s, 10) * 1000; // unix seconds string
+    if (/^\d+$/.test(s)) return parseInt(s, 10) * 1000;
     const ms = Date.parse(s);
     return isNaN(ms) ? null : ms;
   }
@@ -353,6 +121,38 @@
     const s = totalSec % 60;
     if (h > 0) return `${h}h ${m}m ${s}s`;
     return `${m}m ${s}s`;
+  }
+
+  function tickHospitalTimers() {
+    if (!document.getElementById("wrath-overlay")) return;
+    const now = Date.now();
+    const list = document.querySelectorAll("#wrath-overlay .hospTimer");
+    for (const el of list) {
+      const raw = el.getAttribute("data-until") || "";
+      const untilMs = parseUntilToMs(raw);
+      if (!untilMs) { el.textContent = "—"; continue; }
+      const left = untilMs - now;
+      el.textContent = fmtLeft(left);
+      if (left <= 0) el.style.opacity = "0.85";
+      else el.style.opacity = "1";
+    }
+  }
+
+  // ========== split + render ==========
+  function split(rows) {
+    const online = [], idle = [], offline = [], hosp = [];
+    for (const r of (rows || [])) {
+      const isHosp = !!r.hospital || r.status === "hospital";
+      if (isHosp) { hosp.push(r); continue; }
+      if (r.status === "online") online.push(r);
+      else if (r.status === "idle") idle.push(r);
+      else offline.push(r);
+    }
+    online.sort((a,b)=>(a.minutes ?? 999999) - (b.minutes ?? 999999));
+    idle.sort((a,b)=>(a.minutes ?? 999999) - (b.minutes ?? 999999));
+    offline.sort((a,b)=>(a.minutes ?? 999999) - (b.minutes ?? 999999));
+    hosp.sort((a,b)=>(Number(a.hospital_until) || 9999999999) - (Number(b.hospital_until) || 9999999999));
+    return { online, idle, offline, hosp };
   }
 
   function memberHTML(r, st) {
@@ -373,20 +173,11 @@
     `;
   }
 
-  function split(rows) {
-    const online = [], idle = [], offline = [], hosp = [];
-    for (const r of (rows || [])) {
-      const isHosp = !!r.hospital || r.status === "hospital";
-      if (isHosp) { hosp.push(r); continue; }
-      if (r.status === "online") online.push(r);
-      else if (r.status === "idle") idle.push(r);
-      else offline.push(r);
-    }
-    online.sort((a,b)=>(a.minutes ?? 999999) - (b.minutes ?? 999999));
-    idle.sort((a,b)=>(a.minutes ?? 999999) - (b.minutes ?? 999999));
-    offline.sort((a,b)=>(a.minutes ?? 999999) - (b.minutes ?? 999999));
-    hosp.sort((a,b)=>(Number(a.hospital_until) || 9999999999) - (Number(b.hospital_until) || 9999999999));
-    return { online, idle, offline, hosp };
+  function fmtMins(n) {
+    if (typeof n !== "number") return "—";
+    if (n < 60) return `${n}m`;
+    const h = Math.floor(n / 60), m = n % 60;
+    return `${h}h ${m}m`;
   }
 
   function setList(el, arr, st, emptyText) {
@@ -399,8 +190,8 @@
   }
 
   function syncOptUI(tornId) {
-    const btn = $("rt-opt");
-    const txt = $("rt-opt-text");
+    const btn = document.getElementById("rt-opt");
+    const txt = document.getElementById("rt-opt-text");
     if (!btn || !txt) return;
     const on = getLocalAvail(tornId);
     btn.classList.toggle("on", on);
@@ -410,7 +201,7 @@
   async function ensureIdOrWarn() {
     const tid = detectTornId();
     if (!tid) {
-      const err = $("rt-error");
+      const err = document.getElementById("rt-error");
       if (err) {
         err.style.display = "block";
         err.textContent = "Couldn't detect your Torn ID yet.\nOpen your profile/sidebar then try again.";
@@ -420,27 +211,9 @@
     return tid;
   }
 
-  function tickHospitalTimers() {
-    const now = Date.now();
-    const list = document.querySelectorAll("#wrath-overlay .hospTimer");
-    for (const el of list) {
-      const raw = el.getAttribute("data-until") || "";
-      const untilMs = parseUntilToMs(raw);
-      if (!untilMs) { el.textContent = "—"; continue; }
-      const left = untilMs - now;
-      el.textContent = fmtLeft(left);
-      if (left <= 0) {
-        el.style.opacity = "0.85";
-        el.style.fontWeight = "900";
-      } else if (left < 5 * 60 * 1000) {
-        el.style.fontWeight = "950";
-      } else {
-        el.style.fontWeight = "900";
-      }
-    }
-  }
-
   function render(state) {
+    const $ = (id) => document.getElementById(id);
+
     const err = $("rt-error");
     if (state.last_error) {
       err.style.display = "block";
@@ -486,7 +259,7 @@
     setList($("rt-you-online"), you.online, "online", "No one online right now.");
     setList($("rt-you-idle"), you.idle, "idle", "No one idle right now.");
     setList($("rt-you-hosp"), you.hosp, "hospital", "No one in hospital right now.");
-    setList($("rt-you-offline"), you.offline, "offline", "No one offline right now.");
+    setList($("rt-you-offline-list"), you.offline, "offline", "No one offline right now.");
 
     const enemy = state.enemy || {};
     const ef = enemy.faction || {};
@@ -507,19 +280,17 @@
       setList($("rt-them-online"), them.online, "online", "No enemy online right now.");
       setList($("rt-them-idle"), them.idle, "idle", "No enemy idle right now.");
       setList($("rt-them-hosp"), them.hosp, "hospital", "No enemy in hospital right now.");
-      setList($("rt-them-offline"), them.offline, "offline", "No enemy offline right now.");
+      setList($("rt-them-offline-list"), them.offline, "offline", "No enemy offline right now.");
     }
 
-    // keep OPT button synced to local state
     const tid = detectTornId();
     if (tid) syncOptUI(tid);
 
-    // update hospital timers immediately after render
     tickHospitalTimers();
   }
 
   async function refreshState() {
-    const err = $("rt-error");
+    const err = document.getElementById("rt-error");
     try {
       const data = await httpGetJson(API_STATE + `?cb=${Date.now()}`);
       render(data);
@@ -531,13 +302,285 @@
     }
   }
 
+  // ========== draggable shield ==========
+  const POS_KEY = "wrath_shield_pos_v1"; // {top,left} stored
+  function loadPos() {
+    const p = GM_getValue(POS_KEY, null);
+    if (p && typeof p === "object" && p.top != null && p.left != null) return p;
+    // default: convert right->left
+    const left = Math.max(0, window.innerWidth - 48 - SHIELD_RIGHT_DEFAULT);
+    return { top: SHIELD_TOP_DEFAULT, left };
+  }
+  function savePos(top, left) {
+    GM_setValue(POS_KEY, { top, left });
+  }
+  function clamp(val, min, max) { return Math.min(max, Math.max(min, val)); }
+
+  // ========== UI ==========
+  GM_addStyle(`
+    #wrath-overlay, #wrath-overlay * { pointer-events: auto !important; }
+
+    :root{
+      --bg0:#070607;
+      --bg1:#0d0a0c;
+      --text:#f4f2f3;
+      --muted:rgba(244,242,243,.74);
+
+      --ember:#ff7a18;
+      --blood:#ff2a2a;
+      --gold:#ffd24a;
+      --violet:#b06cff;
+
+      --line:rgba(255,255,255,.10);
+      --cardBorder:rgba(255,255,255,.07);
+
+      --green:#00ff66;
+      --yellow:#ffd000;
+      --red:#ff3333;
+
+      --dangerBg:rgba(255,80,80,.12);
+      --dangerBorder:rgba(255,80,80,.25);
+
+      --glowRed: 0 0 14px rgba(255,42,42,.25), 0 0 26px rgba(255,42,42,.14);
+      --glowEmber: 0 0 14px rgba(255,122,24,.22), 0 0 28px rgba(255,122,24,.12);
+    }
+
+    #wrath-shield{
+      position:fixed;
+      z-index:2147483647;
+      width:48px; height:48px; border-radius:14px;
+      display:grid; place-items:center;
+      cursor:pointer; user-select:none; -webkit-tap-highlight-color:transparent;
+
+      background: linear-gradient(180deg, rgba(255,255,255,.09), rgba(255,255,255,.04));
+      border:1px solid rgba(255,255,255,.12);
+      box-shadow: 0 14px 34px rgba(0,0,0,.60), var(--glowRed);
+      color: var(--gold);
+      text-shadow: var(--glowEmber);
+      font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+      font-size:22px;
+      touch-action: none;
+    }
+
+    #wrath-overlay{
+      position:fixed; inset:0; z-index:2147483646; display:none;
+      background:
+        radial-gradient(1200px 700px at 18% 10%, rgba(255,42,42,.10), transparent 55%),
+        radial-gradient(900px 600px at 82% 0%, rgba(255,122,24,.08), transparent 60%),
+        linear-gradient(180deg, var(--bg0), var(--bg1)) !important;
+      color: var(--text);
+      font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+      overflow-y:auto;
+      padding:10px;
+      -webkit-text-size-adjust: 100%;
+    }
+    #wrath-overlay * { color: inherit !important; }
+
+    .sigil{
+      height:10px;
+      border-radius:999px;
+      background: linear-gradient(90deg, transparent, rgba(255,42,42,.55), rgba(255,122,24,.45), transparent) !important;
+      opacity:.9;
+      margin-bottom:10px;
+      position:relative;
+      overflow:hidden;
+      border:1px solid rgba(255,255,255,.06) !important;
+      box-shadow: var(--glowRed);
+    }
+    .sigil:after{
+      content:"";
+      position:absolute;
+      top:-40px; left:-60%;
+      width:40%;
+      height:120px;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,.10), transparent);
+      transform: rotate(18deg);
+      animation: sweep 5.8s linear infinite;
+      opacity:.5;
+    }
+    @keyframes sweep{
+      0%{ left:-60%; }
+      100%{ left:140%; }
+    }
+
+    .topbar { display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:10px; }
+    .title {
+      font-weight: 950;
+      letter-spacing: 1.1px;
+      font-size: 16px;
+      color: var(--gold) !important;
+      text-transform: uppercase;
+      text-shadow: var(--glowEmber);
+    }
+    .meta { font-size:12px; opacity:.96; display:flex; align-items:center; gap:8px; flex-wrap:wrap; color: var(--text) !important; }
+
+    .pill {
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+      padding:6px 10px;
+      border-radius:999px;
+      background: linear-gradient(180deg, rgba(255,255,255,.075), rgba(255,255,255,.04)) !important;
+      border:1px solid rgba(255,255,255,.10) !important;
+      font-size:12px;
+      white-space:nowrap;
+      color: var(--text) !important;
+    }
+
+    .btn {
+      cursor:pointer; user-select:none;
+      padding:6px 10px; border-radius:999px;
+      background: linear-gradient(180deg, rgba(255,255,255,.075), rgba(255,255,255,.04)) !important;
+      border:1px solid rgba(255,255,255,.12) !important;
+      font-size:12px; white-space:nowrap;
+      color: var(--text) !important;
+      box-shadow: 0 8px 18px rgba(0,0,0,.30);
+    }
+    .btn:active { transform: translateY(1px); }
+    .btn.on { border-color: rgba(0,255,102,.35) !important; box-shadow: 0 0 18px rgba(0,255,102,.10); }
+    .btn.danger { border-color: rgba(255,42,42,.35) !important; }
+
+    .divider { margin:14px 0; height:1px; background:var(--line) !important; }
+
+    .section-title {
+      font-weight: 950;
+      letter-spacing: 1.0px;
+      margin-top: 10px;
+      margin-bottom: 6px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      flex-wrap:wrap;
+      color: var(--gold) !important;
+      text-shadow: var(--glowEmber);
+    }
+    .section-title .small { font-size:12px; opacity:.9; font-weight:700; color: var(--text) !important; text-shadow:none; }
+
+    h2 {
+      margin:12px 0 6px;
+      padding-bottom:6px;
+      border-bottom:1px solid rgba(255,255,255,.10) !important;
+      font-size:13px;
+      letter-spacing:.7px;
+      color: var(--text) !important;
+      text-transform: uppercase;
+      opacity: .95;
+      display:flex; justify-content:space-between; align-items:center; gap:10px;
+    }
+
+    .member {
+      padding:9px 10px;
+      margin:6px 0;
+      border-radius:12px;
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:10px;
+      font-size:13px;
+      background: linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.02)) !important;
+      border:1px solid var(--cardBorder) !important;
+      color: var(--text) !important;
+      box-shadow: 0 10px 20px rgba(0,0,0,.22);
+      position: relative;
+      overflow: hidden;
+    }
+    .member:after{
+      content:"";
+      position:absolute;
+      inset:-1px;
+      background:
+        radial-gradient(260px 60px at 10% 0%, rgba(255,122,24,.10), transparent 65%),
+        radial-gradient(220px 55px at 90% 0%, rgba(255,42,42,.10), transparent 70%);
+      pointer-events:none;
+      opacity:.8;
+    }
+
+    .left { display:flex; flex-direction:column; gap:2px; min-width:0; position:relative; z-index:1; }
+    .name { font-weight:900; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:68vw; color: var(--text) !important; }
+    .sub { opacity:.82; font-size:11px; color: var(--text) !important; }
+    .right { opacity:.96; font-size:12px; white-space:nowrap; color: var(--text) !important; position:relative; z-index:1; }
+
+    .online{ border-left:4px solid var(--green) !important; }
+    .idle{ border-left:4px solid var(--yellow) !important; }
+    .offline{ border-left:4px solid var(--red) !important; box-shadow: var(--glowRed); }
+    .hospital{ border-left:4px solid var(--violet) !important; }
+
+    .hospTimer{
+      font-weight: 900;
+      letter-spacing: .4px;
+      text-shadow: var(--glowEmber);
+    }
+
+    .section-empty { opacity:.85; font-size:12px; padding:8px 2px; color: var(--text) !important; }
+
+    .err {
+      margin-top:10px; padding:10px; border-radius:12px;
+      background: var(--dangerBg) !important;
+      border:1px solid var(--dangerBorder) !important;
+      font-size:12px; white-space:pre-wrap;
+      color: var(--text) !important;
+      box-shadow: var(--glowRed);
+    }
+
+    .warbox {
+      margin-top:10px; padding:10px; border-radius:14px;
+      background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03)) !important;
+      border:1px solid rgba(255,255,255,.10) !important;
+      font-size:12px; line-height:1.35;
+      color: var(--text) !important;
+      box-shadow: var(--glowEmber);
+    }
+    .warrow { display:flex; justify-content:space-between; gap:10px; margin:3px 0; }
+    .label { opacity:.8; color: var(--muted) !important; }
+
+    /* ✅ Collapsible OFFLINE (details/summary) */
+    .collapsible{
+      border-radius: 14px;
+      border: 1px solid rgba(255,255,255,.10) !important;
+      background: linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.02)) !important;
+      box-shadow: 0 10px 20px rgba(0,0,0,.22);
+      overflow:hidden;
+      margin: 10px 0;
+    }
+    .collapsible summary{
+      list-style:none;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      cursor:pointer;
+      padding:10px 12px;
+      font-weight: 950;
+      letter-spacing: .7px;
+      text-transform: uppercase;
+      user-select:none;
+    }
+    .collapsible summary::-webkit-details-marker{ display:none; }
+    .collapsible summary:after{
+      content:"▾";
+      opacity:.9;
+      margin-left:8px;
+    }
+    .collapsible[open] summary:after{ content:"▴"; }
+    .collapsible .body{ padding: 0 10px 10px; }
+
+    @media (max-width: 520px){
+      .name{ max-width: 58vw; }
+    }
+  `);
+
   function ensureUI() {
     if (document.getElementById("wrath-shield")) return;
+
+    const pos = loadPos();
 
     const shield = document.createElement("div");
     shield.id = "wrath-shield";
     shield.textContent = "🛡️";
-    shield.title = "Open 7DS*: Wrath War Panel";
+    shield.title = "Drag or tap to open 7DS*: Wrath War Panel";
+    shield.style.top = `${pos.top}px`;
+    shield.style.left = `${pos.left}px`;
 
     const overlay = document.createElement("div");
     overlay.id = "wrath-overlay";
@@ -578,8 +621,14 @@
       <h2>🏥 HOSPITAL <span class="pill" id="rt-you-hosp-count">0</span></h2>
       <div id="rt-you-hosp"></div>
 
-      <h2>🔴 OFFLINE (30+ mins) <span class="pill" id="rt-you-offline-count">0</span></h2>
-      <div id="rt-you-offline"></div>
+      <!-- ✅ OFFLINE COLLAPSIBLE -->
+      <details class="collapsible" id="rt-you-offline">
+        <summary>
+          <span>🔴 OFFLINE (30+ mins)</span>
+          <span class="pill" id="rt-you-offline-count">0</span>
+        </summary>
+        <div class="body" id="rt-you-offline-list"></div>
+      </details>
 
       <div class="divider"></div>
 
@@ -598,43 +647,122 @@
         <h2>🏥 ENEMY HOSPITAL <span class="pill" id="rt-them-hosp-count">0</span></h2>
         <div id="rt-them-hosp"></div>
 
-        <h2>🔴 ENEMY OFFLINE <span class="pill" id="rt-them-offline-count">0</span></h2>
-        <div id="rt-them-offline"></div>
+        <!-- ✅ ENEMY OFFLINE COLLAPSIBLE -->
+        <details class="collapsible" id="rt-them-offline">
+          <summary>
+            <span>🔴 ENEMY OFFLINE (30+ mins)</span>
+            <span class="pill" id="rt-them-offline-count">0</span>
+          </summary>
+          <div class="body" id="rt-them-offline-list"></div>
+        </details>
       </div>
     `;
 
     document.body.appendChild(shield);
     document.body.appendChild(overlay);
 
+    // ===== draggable logic (tap vs drag safe) =====
     let cachedId = null;
+    let dragging = false;
+    let moved = false;
+    let startX = 0, startY = 0;
+    let startTop = 0, startLeft = 0;
 
-    shield.addEventListener("click", async (e) => {
-      e.preventDefault(); e.stopPropagation();
-      overlay.style.display = "block";
-      cachedId = cachedId || detectTornId();
-      syncOptUI(cachedId || "unknown");
-      await refreshState();
-    }, true);
+    function getPoint(ev) {
+      const t = ev.touches && ev.touches[0];
+      return t ? { x: t.clientX, y: t.clientY } : { x: ev.clientX, y: ev.clientY };
+    }
 
-    $("rt-close").addEventListener("click", (e) => {
+    function onDown(ev) {
+      dragging = true;
+      moved = false;
+
+      const p = getPoint(ev);
+      startX = p.x; startY = p.y;
+
+      startTop = parseFloat(shield.style.top || "0");
+      startLeft = parseFloat(shield.style.left || "0");
+
+      shield.style.transition = "none";
+      ev.preventDefault();
+      ev.stopPropagation();
+    }
+
+    function onMove(ev) {
+      if (!dragging) return;
+      const p = getPoint(ev);
+      const dx = p.x - startX;
+      const dy = p.y - startY;
+
+      // only treat as drag after a small threshold (so taps still click)
+      if (!moved && (Math.abs(dx) > 6 || Math.abs(dy) > 6)) moved = true;
+
+      if (moved) {
+        const w = 48, h = 48;
+        const maxLeft = window.innerWidth - w - 2;
+        const maxTop = window.innerHeight - h - 2;
+
+        const nextLeft = clamp(startLeft + dx, 2, maxLeft);
+        const nextTop = clamp(startTop + dy, 2, maxTop);
+
+        shield.style.left = `${nextLeft}px`;
+        shield.style.top = `${nextTop}px`;
+      }
+
+      ev.preventDefault();
+      ev.stopPropagation();
+    }
+
+    function onUp(ev) {
+      if (!dragging) return;
+      dragging = false;
+
+      shield.style.transition = "";
+      const top = parseFloat(shield.style.top || "0");
+      const left = parseFloat(shield.style.left || "0");
+      savePos(top, left);
+
+      // if it wasn't dragged, treat as click -> open overlay
+      if (!moved) {
+        overlay.style.display = "block";
+        cachedId = cachedId || detectTornId();
+        syncOptUI(cachedId || "unknown");
+        refreshState();
+      }
+
+      ev.preventDefault();
+      ev.stopPropagation();
+    }
+
+    // pointer events (best) + touch fallback
+    shield.addEventListener("pointerdown", onDown, true);
+    window.addEventListener("pointermove", onMove, true);
+    window.addEventListener("pointerup", onUp, true);
+
+    shield.addEventListener("touchstart", onDown, { passive: false, capture: true });
+    window.addEventListener("touchmove", onMove, { passive: false, capture: true });
+    window.addEventListener("touchend", onUp, { passive: false, capture: true });
+
+    // ===== buttons =====
+    document.getElementById("rt-close").addEventListener("click", (e) => {
       e.preventDefault(); e.stopPropagation();
       overlay.style.display = "none";
     }, true);
 
-    $("rt-refresh").addEventListener("click", async (e) => {
+    document.getElementById("rt-refresh").addEventListener("click", async (e) => {
       e.preventDefault(); e.stopPropagation();
       cachedId = cachedId || detectTornId();
       syncOptUI(cachedId || "unknown");
       await refreshState();
     }, true);
 
-    $("rt-open-app").addEventListener("click", async (e) => {
+    document.getElementById("rt-open-app").addEventListener("click", async (e) => {
       e.preventDefault(); e.stopPropagation();
       cachedId = cachedId || (await ensureIdOrWarn());
       openAppPanelWithId(cachedId);
     }, true);
 
-    $("rt-opt").addEventListener("click", async (e) => {
+    document.getElementById("rt-opt").addEventListener("click", async (e) => {
       e.preventDefault(); e.stopPropagation();
       cachedId = cachedId || (await ensureIdOrWarn());
       if (!cachedId) return;
@@ -649,7 +777,7 @@
       if (!res.ok) {
         setLocalAvail(cachedId, !next);
         syncOptUI(cachedId);
-        const err = $("rt-error");
+        const err = document.getElementById("rt-error");
         if (err) {
           err.style.display = "block";
           err.textContent =
@@ -677,6 +805,7 @@
 
   ensureUI();
 
+  // Torn can re-render; re-attach if needed
   let tries = 0;
   const t = setInterval(() => {
     ensureUI();

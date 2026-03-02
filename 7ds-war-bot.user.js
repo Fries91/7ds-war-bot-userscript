@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         7DS*: Wrath War-Bot 🛡️ (Wrath Theme + Collapsible + Draggable)
 // @namespace    7ds-wrath-warbot
-// @version      6.8.0
-// @description  Wrath-themed shield overlay matching app.py. Uses /state (CSP-proof). OPT (token 666). OFFLINE sections collapsible. Shield is DRAGGABLE + CLICKABLE. "Open App" opens Render panel with ?xid=YOURID.
+// @version      7.0.1
+// @description  Wrath-themed shield overlay matching app.py. Uses /state (CSP-proof). OPT (token 666). OFFLINE sections collapsible. Shield is DRAGGABLE. Click shield toggles open/close. YOUR faction has 🎯 Bounty buttons. ENEMY has ⚔️ Attack buttons. No close button.
 // @match        https://www.torn.com/*
 // @match        https://torn.com/*
 // @grant        GM_addStyle
@@ -155,24 +155,6 @@
     return { online, idle, offline, hosp };
   }
 
-  function memberHTML(r, st) {
-    const name = esc(r.name || r.id || "Unknown");
-    const id = esc(r.id || "");
-    const opted = r.available ? " ✅ OPTED" : "";
-    const right = st === "hospital"
-      ? `<span class="hospTimer" data-until="${esc(r.hospital_until ?? "")}">—</span>`
-      : esc(fmtMins(r.minutes));
-    return `
-      <div class="member ${st}">
-        <div class="left">
-          <div class="name">${name}${opted}</div>
-          <div class="sub">ID: ${id}</div>
-        </div>
-        <div class="right">${right}</div>
-      </div>
-    `;
-  }
-
   function fmtMins(n) {
     if (typeof n !== "number") return "—";
     if (n < 60) return `${n}m`;
@@ -180,13 +162,60 @@
     return `${h}h ${m}m`;
   }
 
-  function setList(el, arr, st, emptyText) {
+  function attackUrlFor(id) {
+    return `https://www.torn.com/loader.php?sid=attack&user2ID=${encodeURIComponent(String(id || ""))}`;
+  }
+
+  function bountyUrlFor(id) {
+    return `https://www.torn.com/bounties.php?step=add&userID=${encodeURIComponent(String(id || ""))}`;
+  }
+
+  // mode: "you" => Bounty | "enemy" => Attack
+  function memberHTML(r, st, mode) {
+    const name = esc(r.name || r.id || "Unknown");
+    const id = esc(r.id || "");
+    const opted = r.available ? " ✅ OPTED" : "";
+
+    const right = st === "hospital"
+      ? `<span class="hospTimer" data-until="${esc(r.hospital_until ?? "")}">—</span>`
+      : esc(fmtMins(r.minutes));
+
+    if (mode === "you") {
+      return `
+        <div class="member ${st}">
+          <div class="left">
+            <div class="name">${name}${opted}</div>
+            <div class="sub">ID: ${id}</div>
+          </div>
+          <div class="actions">
+            <div class="right">${right}</div>
+            <a class="abtn bounty" href="${bountyUrlFor(r.id)}" target="_blank" rel="noopener noreferrer">🎯 Bounty</a>
+          </div>
+        </div>
+      `;
+    }
+
+    return `
+      <div class="member ${st}">
+        <div class="left">
+          <div class="name">${name}${opted}</div>
+          <div class="sub">ID: ${id}</div>
+        </div>
+        <div class="actions">
+          <div class="right">${right}</div>
+          <a class="abtn attack" href="${attackUrlFor(r.id)}" target="_blank" rel="noopener noreferrer">⚔️ Attack</a>
+        </div>
+      </div>
+    `;
+  }
+
+  function setList(el, arr, st, emptyText, mode) {
     el.innerHTML = "";
     if (!arr.length) {
       el.innerHTML = `<div class="section-empty">${esc(emptyText)}</div>`;
       return;
     }
-    for (const r of arr) el.insertAdjacentHTML("beforeend", memberHTML(r, st));
+    for (const r of arr) el.insertAdjacentHTML("beforeend", memberHTML(r, st, mode));
   }
 
   function syncOptUI(tornId) {
@@ -256,10 +285,10 @@
     $("rt-you-hosp-count").textContent = String(you.hosp.length);
     $("rt-you-offline-count").textContent = String(you.offline.length);
 
-    setList($("rt-you-online"), you.online, "online", "No one online right now.");
-    setList($("rt-you-idle"), you.idle, "idle", "No one idle right now.");
-    setList($("rt-you-hosp"), you.hosp, "hospital", "No one in hospital right now.");
-    setList($("rt-you-offline-list"), you.offline, "offline", "No one offline right now.");
+    setList($("rt-you-online"), you.online, "online", "No one online right now.", "you");
+    setList($("rt-you-idle"), you.idle, "idle", "No one idle right now.", "you");
+    setList($("rt-you-hosp"), you.hosp, "hospital", "No one in hospital right now.", "you");
+    setList($("rt-you-offline-list"), you.offline, "offline", "No one offline right now.", "you");
 
     const enemy = state.enemy || {};
     const ef = enemy.faction || {};
@@ -277,10 +306,10 @@
       $("rt-them-hosp-count").textContent = String(them.hosp.length);
       $("rt-them-offline-count").textContent = String(them.offline.length);
 
-      setList($("rt-them-online"), them.online, "online", "No enemy online right now.");
-      setList($("rt-them-idle"), them.idle, "idle", "No enemy idle right now.");
-      setList($("rt-them-hosp"), them.hosp, "hospital", "No enemy in hospital right now.");
-      setList($("rt-them-offline-list"), them.offline, "offline", "No enemy offline right now.");
+      setList($("rt-them-online"), them.online, "online", "No enemy online right now.", "enemy");
+      setList($("rt-them-idle"), them.idle, "idle", "No enemy idle right now.", "enemy");
+      setList($("rt-them-hosp"), them.hosp, "hospital", "No enemy in hospital right now.", "enemy");
+      setList($("rt-them-offline-list"), them.offline, "offline", "No enemy offline right now.", "enemy");
     }
 
     const tid = detectTornId();
@@ -438,7 +467,6 @@
     }
     .btn:active { transform: translateY(1px); }
     .btn.on { border-color: rgba(0,255,102,.35) !important; box-shadow: 0 0 18px rgba(0,255,102,.10); }
-    .btn.danger { border-color: rgba(255,42,42,.35) !important; }
 
     .divider { margin:14px 0; height:1px; background:var(--line) !important; }
 
@@ -497,7 +525,7 @@
     }
 
     .left { display:flex; flex-direction:column; gap:2px; min-width:0; position:relative; z-index:1; }
-    .name { font-weight:900; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:68vw; color: var(--text) !important; }
+    .name { font-weight:900; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:58vw; color: var(--text) !important; }
     .sub { opacity:.82; font-size:11px; color: var(--text) !important; }
     .right { opacity:.96; font-size:12px; white-space:nowrap; color: var(--text) !important; position:relative; z-index:1; }
 
@@ -565,8 +593,46 @@
     .collapsible[open] summary:after{ content:"▴"; }
     .collapsible .body{ padding: 0 10px 10px; }
 
+    /* ✅ actions + buttons */
+    .actions{
+      display:flex;
+      align-items:center;
+      gap:8px;
+      justify-content:flex-end;
+      position:relative;
+      z-index:2;
+      white-space:nowrap;
+    }
+    .abtn{
+      cursor:pointer; user-select:none;
+      padding:6px 10px; border-radius:12px;
+      border:1px solid rgba(255,255,255,.14) !important;
+      background: linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.03)) !important;
+      font-size:12px; font-weight:950;
+      color: var(--text) !important;
+      text-decoration:none !important;
+      box-shadow: 0 10px 18px rgba(0,0,0,.24);
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+    }
+    .abtn:active{ transform: translateY(1px); }
+
+    .abtn.attack{
+      border-color: rgba(255,122,24,.45) !important;
+      background: linear-gradient(180deg, rgba(255,122,24,.22), rgba(255,42,42,.10)) !important;
+      box-shadow: var(--glowEmber);
+    }
+
+    .abtn.bounty{
+      border-color: rgba(255,42,42,.40) !important;
+      background: linear-gradient(180deg, rgba(255,42,42,.20), rgba(255,122,24,.10)) !important;
+      box-shadow: var(--glowRed);
+    }
+
     @media (max-width: 520px){
-      .name{ max-width: 58vw; }
+      .name{ max-width: 52vw; }
+      .abtn{ padding:6px 9px; }
     }
   `);
 
@@ -578,7 +644,7 @@
     const shield = document.createElement("div");
     shield.id = "wrath-shield";
     shield.textContent = "🛡️";
-    shield.title = "Drag or tap to open 7DS*: Wrath War Panel";
+    shield.title = "Drag or tap to open/close 7DS*: Wrath War Panel";
     shield.style.top = `${pos.top}px`;
     shield.style.left = `${pos.left}px`;
 
@@ -600,7 +666,6 @@
           <span class="btn" id="rt-opt"><span id="rt-opt-text">OPT IN</span></span>
           <span class="btn" id="rt-open-app">Open App</span>
           <span class="btn" id="rt-refresh">Refresh</span>
-          <span class="btn danger" id="rt-close">Close</span>
         </div>
       </div>
 
@@ -668,6 +733,16 @@
     let startX = 0, startY = 0;
     let startTop = 0, startLeft = 0;
 
+    function isOpen() { return overlay.style.display === "block"; }
+    function openOverlay() {
+      overlay.style.display = "block";
+      cachedId = cachedId || detectTornId();
+      syncOptUI(cachedId || "unknown");
+      refreshState();
+    }
+    function closeOverlay() { overlay.style.display = "none"; }
+    function toggleOverlay() { isOpen() ? closeOverlay() : openOverlay(); }
+
     function getPoint(ev) {
       const t = ev.touches && ev.touches[0];
       return t ? { x: t.clientX, y: t.clientY } : { x: ev.clientX, y: ev.clientY };
@@ -722,13 +797,8 @@
       const left = parseFloat(shield.style.left || "0");
       savePos(top, left);
 
-      // if it wasn't dragged, treat as click -> open overlay
-      if (!moved) {
-        overlay.style.display = "block";
-        cachedId = cachedId || detectTornId();
-        syncOptUI(cachedId || "unknown");
-        refreshState();
-      }
+      // if it wasn't dragged, treat as click -> toggle overlay
+      if (!moved) toggleOverlay();
 
       ev.preventDefault();
       ev.stopPropagation();
@@ -744,11 +814,6 @@
     window.addEventListener("touchend", onUp, { passive: false, capture: true });
 
     // ===== buttons =====
-    document.getElementById("rt-close").addEventListener("click", (e) => {
-      e.preventDefault(); e.stopPropagation();
-      overlay.style.display = "none";
-    }, true);
-
     document.getElementById("rt-refresh").addEventListener("click", async (e) => {
       e.preventDefault(); e.stopPropagation();
       cachedId = cachedId || detectTornId();

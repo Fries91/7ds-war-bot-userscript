@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         7DS*: Wrath War-Bot 🛡️ (Wrath Theme + Collapsible + Draggable) [SCOPED FIX + MED DEALS ENEMY MEMBERS]
 // @namespace    7ds-wrath-warbot
-// @version      7.3.2
+// @version      7.3.3
 // @description  Wrath-themed shield overlay matching app.py. Uses /state (CSP-proof). OPT (token 666). OFFLINE sections collapsible. Shield is DRAGGABLE. Tap shield toggles open/close. YOUR faction has 🎯 Bounty buttons. ENEMY has ⚔️ Attack buttons. 💊 Med Deals (Enemy MEMBER dropdown + Our Member dropdown + Notes + Accept + Delete). ✅ CSS scoped to #wrath-overlay/#wrath-shield so Torn Home Screen is NOT affected.
 // @match        https://www.torn.com/*
 // @match        https://torn.com/*
@@ -193,7 +193,7 @@
     return `https://www.torn.com/loader.php?sid=attack&user2ID=${encodeURIComponent(String(id || ""))}`;
   }
 
-  // ✅ FIXED: correct Torn bounty add URL
+  // ✅ FIXED bounty URL
   function bountyUrlFor(id) {
     return `https://www.torn.com/bounties.php?p=add&XID=${encodeURIComponent(String(id || ""))}`;
   }
@@ -267,6 +267,17 @@
     return tid;
   }
 
+  // ====== ✅ FIX: draggable position helpers (THIS BRINGS SHIELD BACK) ======
+  const POS_KEY = "wrath_shield_pos_v1";
+  function clamp(val, min, max) { return Math.min(max, Math.max(min, val)); }
+  function loadPos() {
+    const p = GM_getValue(POS_KEY, null);
+    if (p && typeof p === "object" && p.top != null && p.left != null) return p;
+    const left = Math.max(2, window.innerWidth - 48 - SHIELD_RIGHT_DEFAULT);
+    return { top: SHIELD_TOP_DEFAULT, left };
+  }
+  function savePos(top, left) { GM_setValue(POS_KEY, { top, left }); }
+
   // ====== dropdown options ======
   function buildEnemyMemberOptions(state) {
     const enemyRows = ((state.enemy || {}).rows || [])
@@ -306,17 +317,14 @@
     const count = document.getElementById("rt-deals-count");
     if (!list || !count) return;
 
-    // save for post payload snapshot
     window.__wrath_last_state = state;
 
-    // populate dropdowns
     const enemySel = document.getElementById("deal-enemy-member");
     const memberSel = document.getElementById("deal-member");
 
     const enemyOptions = buildEnemyMemberOptions(state);
     const memberOptions = buildMemberOptions(state);
 
-    // preserve selection if still present
     const prevEnemy = enemySel ? enemySel.value : "";
     const prevMember = memberSel ? memberSel.value : "";
 
@@ -335,21 +343,18 @@
     }
 
     const myId = detectTornId() || "";
-
     list.innerHTML = "";
+
     for (const d of deals) {
       const canDel = myId && String(d.reporter_id || "") === String(myId);
 
       const enemyFaction = esc(d.enemy_faction || (state.war && state.war.opponent) || "—");
-
       const enemyMember = (d.enemy_player_name || d.enemy_player_id)
         ? `${esc(d.enemy_player_name || "—")}${d.enemy_player_id ? ` (${esc(d.enemy_player_id)})` : ""}`
         : "—";
-
       const ourMember = (d.member_name || d.member_id)
         ? `${esc(d.member_name || "—")}${d.member_id ? ` (${esc(d.member_id)})` : ""}`
         : "—";
-
       const notes = d.notes ? esc(d.notes) : "";
 
       list.insertAdjacentHTML("beforeend", `
@@ -387,7 +392,6 @@
     $("rt-hospital").textContent = `🏥 ${c.hospital ?? 0}`;
     $("rt-avail").textContent = `✅ Avail: ${state.available_count ?? 0}`;
 
-    // 💊 Med deals
     renderDeals(state);
 
     const f = state.faction || {};
@@ -438,13 +442,12 @@
 
       setList($("rt-them-online"), them.online, "online", "No enemy online right now.", "enemy");
       setList($("rt-them-idle"), them.idle, "idle", "No enemy idle right now.", "enemy");
-      setList($("rt-them-hosp"), them.hosp, "hospital", "No one in hospital right now.", "enemy");
+      setList($("rt-them-hosp"), them.hosp, "hospital", "No enemy in hospital right now.", "enemy");
       setList($("rt-them-offline-list"), them.offline, "offline", "No enemy offline right now.", "enemy");
     }
 
     const tid = detectTornId();
     if (tid) syncOptUI(tid);
-
     tickHospitalTimers();
   }
 
@@ -457,29 +460,23 @@
       --bg1:#0d0a0c;
       --text:#f4f2f3;
       --muted:rgba(244,242,243,.74);
-
       --ember:#ff7a18;
       --blood:#ff2a2a;
       --gold:#ffd24a;
       --violet:#b06cff;
-
       --line:rgba(255,255,255,.10);
       --cardBorder:rgba(255,255,255,.07);
-
       --green:#00ff66;
       --yellow:#ffd000;
       --red:#ff3333;
-
       --dangerBg:rgba(255,80,80,.12);
       --dangerBorder:rgba(255,80,80,.25);
-
       --glowRed: 0 0 14px rgba(255,42,42,.25), 0 0 26px rgba(255,42,42,.14);
       --glowEmber: 0 0 14px rgba(255,122,24,.22), 0 0 28px rgba(255,122,24,.12);
     }
 
     #wrath-shield{
-      position:fixed;
-      z-index:2147483647;
+      position:fixed; z-index:2147483647;
       width:48px; height:48px; border-radius:14px;
       display:grid; place-items:center;
       cursor:pointer; user-select:none; -webkit-tap-highlight-color:transparent;
@@ -490,7 +487,7 @@
       text-shadow: var(--glowEmber);
       font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
       font-size:22px;
-      touch-action: none;
+      touch-action:none;
     }
 
     #wrath-overlay{
@@ -503,251 +500,111 @@
       font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
       overflow-y:auto;
       padding:10px;
-      -webkit-text-size-adjust: 100%;
+      -webkit-text-size-adjust:100%;
     }
     #wrath-overlay * { color: inherit !important; }
 
-    #wrath-overlay .sigil{
-      height:10px;
-      border-radius:999px;
+    #wrath-overlay .sigil{ height:10px; border-radius:999px;
       background: linear-gradient(90deg, transparent, rgba(255,42,42,.55), rgba(255,122,24,.45), transparent) !important;
-      opacity:.9;
-      margin-bottom:10px;
-      position:relative;
-      overflow:hidden;
-      border:1px solid rgba(255,255,255,.06) !important;
-      box-shadow: var(--glowRed);
-    }
-    #wrath-overlay .sigil:after{
-      content:"";
-      position:absolute;
-      top:-40px; left:-60%;
-      width:40%;
-      height:120px;
+      opacity:.9; margin-bottom:10px; position:relative; overflow:hidden;
+      border:1px solid rgba(255,255,255,.06) !important; box-shadow: var(--glowRed); }
+    #wrath-overlay .sigil:after{ content:""; position:absolute; top:-40px; left:-60%; width:40%; height:120px;
       background: linear-gradient(90deg, transparent, rgba(255,255,255,.10), transparent);
-      transform: rotate(18deg);
-      animation: wrath_sweep 5.8s linear infinite;
-      opacity:.5;
-    }
+      transform: rotate(18deg); animation: wrath_sweep 5.8s linear infinite; opacity:.5; }
     @keyframes wrath_sweep{ 0%{ left:-60%; } 100%{ left:140%; } }
 
     #wrath-overlay .topbar { display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:10px; }
-    #wrath-overlay .title {
-      font-weight: 950;
-      letter-spacing: 1.1px;
-      font-size: 16px;
-      color: var(--gold) !important;
-      text-transform: uppercase;
-      text-shadow: var(--glowEmber);
-    }
-    #wrath-overlay .meta { font-size:12px; opacity:.96; display:flex; align-items:center; gap:8px; flex-wrap:wrap; color: var(--text) !important; }
-
-    #wrath-overlay .pill {
-      display:inline-flex;
-      align-items:center;
-      gap:6px;
-      padding:6px 10px;
-      border-radius:999px;
+    #wrath-overlay .title { font-weight:950; letter-spacing:1.1px; font-size:16px; color:var(--gold) !important; text-transform:uppercase; text-shadow:var(--glowEmber); }
+    #wrath-overlay .meta { font-size:12px; opacity:.96; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+    #wrath-overlay .pill { display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:999px;
       background: linear-gradient(180deg, rgba(255,255,255,.075), rgba(255,255,255,.04)) !important;
-      border:1px solid rgba(255,255,255,.10) !important;
-      font-size:12px;
-      white-space:nowrap;
-      color: var(--text) !important;
-    }
+      border:1px solid rgba(255,255,255,.10) !important; font-size:12px; white-space:nowrap; }
 
-    #wrath-overlay .btn {
-      cursor:pointer; user-select:none;
-      padding:6px 10px; border-radius:999px;
+    #wrath-overlay .btn { cursor:pointer; user-select:none; padding:6px 10px; border-radius:999px;
       background: linear-gradient(180deg, rgba(255,255,255,.075), rgba(255,255,255,.04)) !important;
-      border:1px solid rgba(255,255,255,.12) !important;
-      font-size:12px; white-space:nowrap;
-      color: var(--text) !important;
-      box-shadow: 0 8px 18px rgba(0,0,0,.30);
-    }
+      border:1px solid rgba(255,255,255,.12) !important; font-size:12px; white-space:nowrap; box-shadow:0 8px 18px rgba(0,0,0,.30); }
     #wrath-overlay .btn:active { transform: translateY(1px); }
     #wrath-overlay .btn.on { border-color: rgba(0,255,102,.35) !important; box-shadow: 0 0 18px rgba(0,255,102,.10); }
 
     #wrath-overlay .divider { margin:14px 0; height:1px; background:var(--line) !important; }
 
-    #wrath-overlay .section-title {
-      font-weight: 950;
-      letter-spacing: 1.0px;
-      margin-top: 10px;
-      margin-bottom: 6px;
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:10px;
-      flex-wrap:wrap;
-      color: var(--gold) !important;
-      text-shadow: var(--glowEmber);
-    }
-    #wrath-overlay .section-title .small { font-size:12px; opacity:.9; font-weight:700; color: var(--text) !important; text-shadow:none; }
+    #wrath-overlay .section-title { font-weight:950; letter-spacing:1px; margin-top:10px; margin-bottom:6px;
+      display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;
+      color:var(--gold) !important; text-shadow:var(--glowEmber); }
+    #wrath-overlay .section-title .small { font-size:12px; opacity:.9; font-weight:700; text-shadow:none; }
 
-    #wrath-overlay h2 {
-      margin:12px 0 6px;
-      padding-bottom:6px;
-      border-bottom:1px solid rgba(255,255,255,.10) !important;
-      font-size:13px;
-      letter-spacing:.7px;
-      color: var(--text) !important;
-      text-transform: uppercase;
-      opacity: .95;
-      display:flex; justify-content:space-between; align-items:center; gap:10px;
-    }
+    #wrath-overlay h2 { margin:12px 0 6px; padding-bottom:6px; border-bottom:1px solid rgba(255,255,255,.10) !important;
+      font-size:13px; letter-spacing:.7px; text-transform:uppercase; opacity:.95;
+      display:flex; justify-content:space-between; align-items:center; gap:10px; }
 
-    #wrath-overlay .member {
-      padding:9px 10px;
-      margin:6px 0;
-      border-radius:12px;
-      display:flex;
-      justify-content:space-between;
-      align-items:center;
-      gap:10px;
-      font-size:13px;
+    #wrath-overlay .member{ padding:9px 10px; margin:6px 0; border-radius:12px; display:flex; justify-content:space-between; align-items:center; gap:10px; font-size:13px;
       background: linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.02)) !important;
-      border:1px solid var(--cardBorder) !important;
-      color: var(--text) !important;
-      box-shadow: 0 10px 20px rgba(0,0,0,.22);
-      position: relative;
-      overflow: hidden;
-    }
-    #wrath-overlay .member:after{
-      content:"";
-      position:absolute;
-      inset:-1px;
-      background:
-        radial-gradient(260px 60px at 10% 0%, rgba(255,122,24,.10), transparent 65%),
-        radial-gradient(220px 55px at 90% 0%, rgba(255,42,42,.10), transparent 70%);
-      pointer-events:none;
-      opacity:.8;
-    }
+      border:1px solid var(--cardBorder) !important; box-shadow: 0 10px 20px rgba(0,0,0,.22); position:relative; overflow:hidden; }
+    #wrath-overlay .member:after{ content:""; position:absolute; inset:-1px;
+      background: radial-gradient(260px 60px at 10% 0%, rgba(255,122,24,.10), transparent 65%),
+                  radial-gradient(220px 55px at 90% 0%, rgba(255,42,42,.10), transparent 70%);
+      pointer-events:none; opacity:.8; }
 
-    #wrath-overlay .left { display:flex; flex-direction:column; gap:2px; min-width:0; position:relative; z-index:1; }
-    #wrath-overlay .name { font-weight:900; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:58vw; color: var(--text) !important; }
-    #wrath-overlay .sub { opacity:.82; font-size:11px; color: var(--text) !important; }
-    #wrath-overlay .right { opacity:.96; font-size:12px; white-space:nowrap; color: var(--text) !important; position:relative; z-index:1; }
+    #wrath-overlay .left{ display:flex; flex-direction:column; gap:2px; min-width:0; position:relative; z-index:1; }
+    #wrath-overlay .name{ font-weight:900; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:58vw; }
+    #wrath-overlay .sub{ opacity:.82; font-size:11px; }
+    #wrath-overlay .right{ opacity:.96; font-size:12px; white-space:nowrap; position:relative; z-index:1; }
 
     #wrath-overlay .online{ border-left:4px solid var(--green) !important; }
     #wrath-overlay .idle{ border-left:4px solid var(--yellow) !important; }
     #wrath-overlay .offline{ border-left:4px solid var(--red) !important; box-shadow: var(--glowRed); }
     #wrath-overlay .hospital{ border-left:4px solid var(--violet) !important; }
+    #wrath-overlay .hospTimer{ font-weight:900; letter-spacing:.4px; text-shadow:var(--glowEmber); }
 
-    #wrath-overlay .hospTimer{ font-weight: 900; letter-spacing: .4px; text-shadow: var(--glowEmber); }
-    #wrath-overlay .section-empty { opacity:.85; font-size:12px; padding:8px 2px; color: var(--text) !important; }
+    #wrath-overlay .section-empty{ opacity:.85; font-size:12px; padding:8px 2px; }
 
-    #wrath-overlay .err {
-      margin-top:10px; padding:10px; border-radius:12px;
-      background: var(--dangerBg) !important;
-      border:1px solid var(--dangerBorder) !important;
-      font-size:12px; white-space:pre-wrap;
-      color: var(--text) !important;
-      box-shadow: var(--glowRed);
-    }
+    #wrath-overlay .err{ margin-top:10px; padding:10px; border-radius:12px; background: var(--dangerBg) !important;
+      border:1px solid var(--dangerBorder) !important; font-size:12px; white-space:pre-wrap; box-shadow: var(--glowRed); }
 
-    #wrath-overlay .warbox {
-      margin-top:10px; padding:10px; border-radius:14px;
+    #wrath-overlay .warbox{ margin-top:10px; padding:10px; border-radius:14px;
       background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03)) !important;
-      border:1px solid rgba(255,255,255,.10) !important;
-      font-size:12px; line-height:1.35;
-      color: var(--text) !important;
-      box-shadow: var(--glowEmber);
-    }
-    #wrath-overlay .warrow { display:flex; justify-content:space-between; gap:10px; margin:3px 0; }
-    #wrath-overlay .label { opacity:.8; color: var(--muted) !important; }
+      border:1px solid rgba(255,255,255,.10) !important; font-size:12px; line-height:1.35; box-shadow: var(--glowEmber); }
+    #wrath-overlay .warrow{ display:flex; justify-content:space-between; gap:10px; margin:3px 0; }
+    #wrath-overlay .label{ opacity:.8; color: var(--muted) !important; }
 
-    #wrath-overlay .collapsible{
-      border-radius: 14px;
-      border: 1px solid rgba(255,255,255,.10) !important;
+    #wrath-overlay .collapsible{ border-radius:14px; border:1px solid rgba(255,255,255,.10) !important;
       background: linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.02)) !important;
-      box-shadow: 0 10px 20px rgba(0,0,0,.22);
-      overflow:hidden;
-      margin: 10px 0;
-    }
-    #wrath-overlay .collapsible summary{
-      list-style:none;
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:10px;
-      cursor:pointer;
-      padding:10px 12px;
-      font-weight: 950;
-      letter-spacing: .7px;
-      text-transform: uppercase;
-      user-select:none;
-    }
+      box-shadow:0 10px 20px rgba(0,0,0,.22); overflow:hidden; margin:10px 0; }
+    #wrath-overlay .collapsible summary{ list-style:none; display:flex; align-items:center; justify-content:space-between; gap:10px;
+      cursor:pointer; padding:10px 12px; font-weight:950; letter-spacing:.7px; text-transform:uppercase; user-select:none; }
     #wrath-overlay .collapsible summary::-webkit-details-marker{ display:none; }
     #wrath-overlay .collapsible summary:after{ content:"▾"; opacity:.9; margin-left:8px; }
     #wrath-overlay .collapsible[open] summary:after{ content:"▴"; }
-    #wrath-overlay .collapsible .body{ padding: 0 10px 10px; }
+    #wrath-overlay .collapsible .body{ padding:0 10px 10px; }
 
-    #wrath-overlay .actions{
-      display:flex; align-items:center; gap:8px; justify-content:flex-end;
-      position:relative; z-index:2; white-space:nowrap;
-    }
-    #wrath-overlay .abtn{
-      cursor:pointer; user-select:none;
-      padding:6px 10px; border-radius:12px;
+    #wrath-overlay .actions{ display:flex; align-items:center; gap:8px; justify-content:flex-end; position:relative; z-index:2; white-space:nowrap; }
+    #wrath-overlay .abtn{ cursor:pointer; user-select:none; padding:6px 10px; border-radius:12px;
       border:1px solid rgba(255,255,255,.14) !important;
       background: linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.03)) !important;
-      font-size:12px; font-weight:950;
-      color: var(--text) !important;
-      text-decoration:none !important;
-      box-shadow: 0 10px 18px rgba(0,0,0,.24);
-      display:inline-flex; align-items:center; gap:6px;
-    }
+      font-size:12px; font-weight:950; text-decoration:none !important; box-shadow:0 10px 18px rgba(0,0,0,.24);
+      display:inline-flex; align-items:center; gap:6px; }
     #wrath-overlay .abtn:active{ transform: translateY(1px); }
+    #wrath-overlay .abtn.attack{ border-color: rgba(255,122,24,.45) !important; background: linear-gradient(180deg, rgba(255,122,24,.22), rgba(255,42,42,.10)) !important; box-shadow: var(--glowEmber); }
+    #wrath-overlay .abtn.bounty{ border-color: rgba(255,42,42,.40) !important; background: linear-gradient(180deg, rgba(255,42,42,.20), rgba(255,122,24,.10)) !important; box-shadow: var(--glowRed); }
 
-    #wrath-overlay .abtn.attack{
-      border-color: rgba(255,122,24,.45) !important;
-      background: linear-gradient(180deg, rgba(255,122,24,.22), rgba(255,42,42,.10)) !important;
-      box-shadow: var(--glowEmber);
-    }
-    #wrath-overlay .abtn.bounty{
-      border-color: rgba(255,42,42,.40) !important;
-      background: linear-gradient(180deg, rgba(255,42,42,.20), rgba(255,122,24,.10)) !important;
-      box-shadow: var(--glowRed);
-    }
-
-    /* 💊 Med deals UI */
-    #wrath-overlay .dealCard{
-      padding:10px;
-      margin:6px 0;
-      border-radius:14px;
-      border:1px solid rgba(255,255,255,.08) !important;
+    #wrath-overlay .dealCard{ padding:10px; margin:6px 0; border-radius:14px; border:1px solid rgba(255,255,255,.08) !important;
       background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02)) !important;
-      box-shadow: 0 10px 20px rgba(0,0,0,.20);
-      font-size:12px;
-    }
+      box-shadow:0 10px 20px rgba(0,0,0,.20); font-size:12px; }
     #wrath-overlay .dealRow{ display:flex; justify-content:space-between; gap:10px; margin:4px 0; }
     #wrath-overlay .dealLabel{ opacity:.75; }
     #wrath-overlay .dealStrong{ font-weight:950; text-align:right; }
-    #wrath-overlay .dealForm{
-      margin-top:10px;
-      padding:10px;
-      border-radius:14px;
-      border:1px solid rgba(255,255,255,.08) !important;
-      background: linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.02)) !important;
-    }
+
+    #wrath-overlay .dealForm{ margin-top:10px; padding:10px; border-radius:14px; border:1px solid rgba(255,255,255,.08) !important;
+      background: linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.02)) !important; }
     #wrath-overlay .dealGrid{ display:grid; grid-template-columns:1fr 1fr; gap:8px; }
-    #wrath-overlay .dealGrid textarea,
-    #wrath-overlay .dealGrid select{
-      width:100%;
-      box-sizing:border-box;
-      padding:10px;
-      border-radius:12px;
-      border:1px solid rgba(255,255,255,.12) !important;
-      background: rgba(0,0,0,.25) !important;
-      color: var(--text) !important;
-      outline:none;
-      font-size:12px;
-    }
-    #wrath-overlay .dealGrid textarea{ grid-column: 1 / -1; min-height:70px; resize:vertical; }
+    #wrath-overlay .dealGrid textarea, #wrath-overlay .dealGrid select{
+      width:100%; box-sizing:border-box; padding:10px; border-radius:12px; border:1px solid rgba(255,255,255,.12) !important;
+      background: rgba(0,0,0,.25) !important; outline:none; font-size:12px; }
+    #wrath-overlay .dealGrid textarea{ grid-column:1 / -1; min-height:70px; resize:vertical; }
     #wrath-overlay .dealHint{ font-size:11px; opacity:.8; margin-top:8px; }
 
-    @media (max-width: 520px){
-      #wrath-overlay .name{ max-width: 52vw; }
+    @media (max-width:520px){
+      #wrath-overlay .name{ max-width:52vw; }
       #wrath-overlay .abtn{ padding:6px 9px; }
       #wrath-overlay .dealGrid{ grid-template-columns:1fr; }
     }
@@ -767,6 +624,7 @@
   }
 
   function ensureUI() {
+    if (!document.body) return;
     if (document.getElementById("wrath-shield")) return;
 
     const pos = loadPos();
@@ -802,7 +660,6 @@
       <div id="rt-error" class="err" style="display:none;"></div>
       <div id="rt-war" class="warbox" style="display:none;"></div>
 
-      <!-- 💊 MED DEALS -->
       <details class="collapsible" id="rt-deals" open>
         <summary>
           <span>💊 MED DEALS</span>
@@ -813,20 +670,13 @@
 
           <div class="dealForm">
             <div class="dealGrid">
-              <select id="deal-enemy-member">
-                <option value="">Enemy member…</option>
-              </select>
-              <select id="deal-member">
-                <option value="">Our member…</option>
-              </select>
-
+              <select id="deal-enemy-member"><option value="">Enemy member…</option></select>
+              <select id="deal-member"><option value="">Our member…</option></select>
               <textarea id="deal-notes" placeholder="Notes (optional) — terms, delivery, etc."></textarea>
             </div>
-
             <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:10px;">
               <span class="abtn" id="deal-submit">✅ Accept / Post Deal</span>
             </div>
-
             <div class="dealHint">
               Enemy member + our member are required. Only the person who posts a deal can delete it (“Deal Done”).
             </div>
@@ -834,11 +684,7 @@
         </div>
       </details>
 
-      <div class="section-title">
-        <div>🛡️ YOUR FACTION</div>
-        <div class="small" id="rt-you-title">—</div>
-      </div>
-
+      <div class="section-title"><div>🛡️ YOUR FACTION</div><div class="small" id="rt-you-title">—</div></div>
       <h2>🟢 ONLINE (0–20 mins) <span class="pill" id="rt-you-online-count">0</span></h2>
       <div id="rt-you-online"></div>
 
@@ -849,20 +695,13 @@
       <div id="rt-you-hosp"></div>
 
       <details class="collapsible" id="rt-you-offline">
-        <summary>
-          <span>🔴 OFFLINE (30+ mins)</span>
-          <span class="pill" id="rt-you-offline-count">0</span>
-        </summary>
+        <summary><span>🔴 OFFLINE (30+ mins)</span><span class="pill" id="rt-you-offline-count">0</span></summary>
         <div class="body" id="rt-you-offline-list"></div>
       </details>
 
       <div class="divider"></div>
 
-      <div class="section-title">
-        <div>🎯 ENEMY FACTION</div>
-        <div class="small" id="rt-them-title">Waiting for opponent id…</div>
-      </div>
-
+      <div class="section-title"><div>🎯 ENEMY FACTION</div><div class="small" id="rt-them-title">Waiting for opponent id…</div></div>
       <div id="rt-enemy-wrap" style="display:none;">
         <h2>🟢 ENEMY ONLINE <span class="pill" id="rt-them-online-count">0</span></h2>
         <div id="rt-them-online"></div>
@@ -874,10 +713,7 @@
         <div id="rt-them-hosp"></div>
 
         <details class="collapsible" id="rt-them-offline">
-          <summary>
-            <span>🔴 ENEMY OFFLINE (30+ mins)</span>
-            <span class="pill" id="rt-them-offline-count">0</span>
-          </summary>
+          <summary><span>🔴 ENEMY OFFLINE (30+ mins)</span><span class="pill" id="rt-them-offline-count">0</span></summary>
           <div class="body" id="rt-them-offline-list"></div>
         </details>
       </div>
@@ -886,7 +722,7 @@
     document.body.appendChild(shield);
     document.body.appendChild(overlay);
 
-    // ===== draggable logic (tap vs drag safe) =====
+    // ===== draggable logic =====
     let cachedId = null;
     let dragging = false;
     let moved = false;
@@ -911,16 +747,12 @@
     function onDown(ev) {
       dragging = true;
       moved = false;
-
       const p = getPoint(ev);
       startX = p.x; startY = p.y;
-
       startTop = parseFloat(shield.style.top || "0");
       startLeft = parseFloat(shield.style.left || "0");
-
       shield.style.transition = "none";
-      ev.preventDefault();
-      ev.stopPropagation();
+      ev.preventDefault(); ev.stopPropagation();
     }
 
     function onMove(ev) {
@@ -928,38 +760,29 @@
       const p = getPoint(ev);
       const dx = p.x - startX;
       const dy = p.y - startY;
-
       if (!moved && (Math.abs(dx) > 6 || Math.abs(dy) > 6)) moved = true;
 
       if (moved) {
         const w = 48, h = 48;
         const maxLeft = window.innerWidth - w - 2;
         const maxTop = window.innerHeight - h - 2;
-
         const nextLeft = clamp(startLeft + dx, 2, maxLeft);
         const nextTop = clamp(startTop + dy, 2, maxTop);
-
         shield.style.left = `${nextLeft}px`;
         shield.style.top = `${nextTop}px`;
       }
-
-      ev.preventDefault();
-      ev.stopPropagation();
+      ev.preventDefault(); ev.stopPropagation();
     }
 
     function onUp(ev) {
       if (!dragging) return;
       dragging = false;
-
       shield.style.transition = "";
       const top = parseFloat(shield.style.top || "0");
       const left = parseFloat(shield.style.left || "0");
       savePos(top, left);
-
       if (!moved) toggleOverlay();
-
-      ev.preventDefault();
-      ev.stopPropagation();
+      ev.preventDefault(); ev.stopPropagation();
     }
 
     shield.addEventListener("pointerdown", onDown, true);
@@ -1011,7 +834,7 @@
       }
     }, true);
 
-    // 💊 Accept / Post Deal
+    // 💊 Post deal
     document.getElementById("deal-submit").addEventListener("click", async (e) => {
       e.preventDefault(); e.stopPropagation();
 
@@ -1027,16 +850,8 @@
 
       const err = document.getElementById("rt-error");
 
-      if (!enemyId) {
-        err.style.display = "block";
-        err.textContent = "Med Deals: Please select an enemy member.";
-        return;
-      }
-      if (!memberId) {
-        err.style.display = "block";
-        err.textContent = "Med Deals: Please select one of our members.";
-        return;
-      }
+      if (!enemyId) { err.style.display="block"; err.textContent="Med Deals: Please select an enemy member."; return; }
+      if (!memberId) { err.style.display="block"; err.textContent="Med Deals: Please select one of our members."; return; }
 
       const enemyOpt = document.querySelector(`#deal-enemy-member option[value="${CSS.escape(enemyId)}"]`);
       const enemyName = enemyOpt ? enemyOpt.textContent.replace(/\s*\(\d+\)\s*$/, "").trim() : "";
@@ -1044,7 +859,6 @@
       const memberOpt = document.querySelector(`#deal-member option[value="${CSS.escape(memberId)}"]`);
       const memberName = memberOpt ? memberOpt.textContent.replace(/\s*\(\d+\)\s*$/, "").trim() : "";
 
-      // snapshot enemy faction text (optional)
       let enemyFaction = "";
       try {
         const ef = ((state || {}).enemy || {}).faction || {};
@@ -1071,13 +885,11 @@
         return;
       }
 
-      // Clear notes only (keep selections)
       document.getElementById("deal-notes").value = "";
-
       await refreshState();
     }, true);
 
-    // 💊 Delete Deal (Deal Done) — FIXED: closest() + remove card instantly + update count
+    // 💊 Deal Done (delete) — removes immediately + refresh
     overlay.addEventListener("click", async (e) => {
       const target = e.target;
       if (!(target instanceof HTMLElement)) return;
@@ -1088,8 +900,7 @@
       const dealId = btn.getAttribute("data-deal-del");
       if (!dealId) return;
 
-      e.preventDefault();
-      e.stopPropagation();
+      e.preventDefault(); e.stopPropagation();
 
       const tid = cachedId || (await ensureIdOrWarn());
       if (!tid) return;
@@ -1102,7 +913,6 @@
       if (!res.ok) {
         btn.style.pointerEvents = "";
         btn.textContent = oldText || "🗑 Deal Done";
-
         const err = document.getElementById("rt-error");
         if (err) {
           err.style.display = "block";
@@ -1121,15 +931,12 @@
       if (list && countEl) {
         const remaining = list.querySelectorAll(".dealCard").length;
         countEl.textContent = String(remaining);
-        if (remaining === 0) {
-          list.innerHTML = `<div class="section-empty">No deals logged yet.</div>`;
-        }
+        if (remaining === 0) list.innerHTML = `<div class="section-empty">No deals logged yet.</div>`;
       }
 
       await refreshState();
     }, true);
 
-    // auto refresh while open
     setInterval(() => {
       if (overlay.style.display === "block") {
         refreshState();
@@ -1137,19 +944,18 @@
       }
     }, REFRESH_MS);
 
-    // 1s hospital countdown tick while open
     setInterval(() => {
       if (overlay.style.display === "block") tickHospitalTimers();
     }, 1000);
   }
 
+  // ✅ ensures it builds even if Torn loads slow
   ensureUI();
-
-  // Torn can re-render; re-attach if needed
   let tries = 0;
   const t = setInterval(() => {
     ensureUI();
     tries++;
-    if (tries >= 12) clearInterval(t);
-  }, 800);
+    if (tries >= 20) clearInterval(t);
+  }, 700);
+
 })();

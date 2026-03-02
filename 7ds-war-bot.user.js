@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         7DS*: Wrath War-Bot 🛡️ (Wrath Theme + Collapsible + Draggable) [SCOPED FIX]
+// @name         7DS*: Wrath War-Bot 🛡️ (Wrath Theme + Collapsible + Draggable) [SCOPED FIX + MED DEALS]
 // @namespace    7ds-wrath-warbot
-// @version      7.0.2
-// @description  Wrath-themed shield overlay matching app.py. Uses /state (CSP-proof). OPT (token 666). OFFLINE sections collapsible. Shield is DRAGGABLE. Tap shield toggles open/close. YOUR faction has 🎯 Bounty buttons. ENEMY has ⚔️ Attack buttons. ✅ FIX: All CSS is scoped to #wrath-overlay/#wrath-shield so Torn Home Screen is NOT affected.
+// @version      7.1.0
+// @description  Wrath-themed shield overlay matching app.py. Uses /state (CSP-proof). OPT (token 666). OFFLINE sections collapsible. Shield is DRAGGABLE. Tap shield toggles open/close. YOUR faction has 🎯 Bounty buttons. ENEMY has ⚔️ Attack buttons. 💊 NEW: Med Deals section (add + view + delete your own). ✅ FIX: All CSS is scoped to #wrath-overlay/#wrath-shield so Torn Home Screen is NOT affected.
 // @match        https://www.torn.com/*
 // @match        https://torn.com/*
 // @grant        GM_addStyle
@@ -18,12 +18,11 @@
   const BASE_URL  = "https://torn-war-bot.onrender.com";
   const API_STATE = `${BASE_URL}/state`;
   const API_AVAIL = `${BASE_URL}/api/availability`;
+  const API_DEALS = `${BASE_URL}/api/med_deals`;
   const AVAIL_TOKEN = "666";
 
-  // default position (used if no saved position)
   const SHIELD_TOP_DEFAULT = 110;
   const SHIELD_RIGHT_DEFAULT = 12;
-
   const REFRESH_MS = 8000;
 
   // ========== helpers ==========
@@ -44,6 +43,23 @@
           catch { reject(new Error("Bad JSON from server")); }
         },
         onerror: () => reject(new Error("Network error")),
+      });
+    });
+  }
+
+  function httpJson(method, url, bodyObj, extraHeaders = {}) {
+    return new Promise((resolve) => {
+      GM_xmlhttpRequest({
+        method,
+        url,
+        headers: Object.assign({ "Content-Type": "application/json" }, extraHeaders),
+        data: bodyObj ? JSON.stringify(bodyObj) : null,
+        onload: (r) => {
+          let body = r.responseText;
+          try { body = JSON.parse(body || "{}"); } catch {}
+          resolve({ ok: r.status >= 200 && r.status < 300, status: r.status, body });
+        },
+        onerror: () => resolve({ ok: false, status: 0, body: "network error" })
       });
     });
   }
@@ -81,20 +97,31 @@
   function getLocalAvail(tornId) { return !!GM_getValue(availKey(tornId), false); }
 
   function postAvailability(tornId, available, name) {
-    return new Promise((resolve) => {
-      GM_xmlhttpRequest({
-        method: "POST",
-        url: API_AVAIL + `?token=${encodeURIComponent(AVAIL_TOKEN)}`,
-        headers: { "Content-Type": "application/json", "X-Token": AVAIL_TOKEN },
-        data: JSON.stringify({ torn_id: String(tornId || ""), available: !!available, name: name || "" }),
-        onload: (r) => {
-          let body = r.responseText;
-          try { body = JSON.parse(body || "{}"); } catch {}
-          resolve({ ok: r.status >= 200 && r.status < 300, status: r.status, body });
-        },
-        onerror: () => resolve({ ok: false, status: 0, body: "network error" })
-      });
-    });
+    return httpJson(
+      "POST",
+      API_AVAIL + `?token=${encodeURIComponent(AVAIL_TOKEN)}`,
+      { torn_id: String(tornId || ""), available: !!available, name: name || "" },
+      { "X-Token": AVAIL_TOKEN }
+    );
+  }
+
+  // 💊 Med Deals API
+  function postMedDeal(payload) {
+    return httpJson(
+      "POST",
+      API_DEALS + `?token=${encodeURIComponent(AVAIL_TOKEN)}`,
+      payload,
+      { "X-Token": AVAIL_TOKEN }
+    );
+  }
+
+  function deleteMedDeal(dealId, requesterId) {
+    return httpJson(
+      "DELETE",
+      `${API_DEALS}/${encodeURIComponent(String(dealId))}?token=${encodeURIComponent(AVAIL_TOKEN)}&requester_id=${encodeURIComponent(String(requesterId || ""))}`,
+      null,
+      { "X-Token": AVAIL_TOKEN, "X-Requester-Id": String(requesterId || "") }
+    );
   }
 
   function openAppPanelWithId(tid) {
@@ -164,12 +191,10 @@
   function attackUrlFor(id) {
     return `https://www.torn.com/loader.php?sid=attack&user2ID=${encodeURIComponent(String(id || ""))}`;
   }
-
   function bountyUrlFor(id) {
     return `https://www.torn.com/bounties.php?step=add&userID=${encodeURIComponent(String(id || ""))}`;
   }
 
-  // mode: "you" => Bounty | "enemy" => Attack
   function memberHTML(r, st, mode) {
     const name = esc(r.name || r.id || "Unknown");
     const id = esc(r.id || "");
@@ -217,12 +242,11 @@
     for (const r of arr) el.insertAdjacentHTML("beforeend", memberHTML(r, st, mode));
   }
 
-  function availKey2(tornId) { return `wrath_avail_${tornId || "unknown"}`; }
   function syncOptUI(tornId) {
     const btn = document.getElementById("rt-opt");
     const txt = document.getElementById("rt-opt-text");
     if (!btn || !txt) return;
-    const on = !!GM_getValue(availKey2(tornId), false);
+    const on = !!GM_getValue(availKey(tornId), false);
     btn.classList.toggle("on", on);
     txt.textContent = on ? "OPTED IN" : "OPT IN";
   }
@@ -238,6 +262,48 @@
       return null;
     }
     return tid;
+  }
+
+  function renderDeals(state) {
+    const list = document.getElementById("rt-deals-list");
+    const count = document.getElementById("rt-deals-count");
+    if (!list || !count) return;
+
+    const deals = (state.med_deals || []);
+    count.textContent = String(deals.length);
+
+    if (!deals.length) {
+      list.innerHTML = `<div class="section-empty">No deals logged yet.</div>`;
+      return;
+    }
+
+    const myId = detectTornId() || "";
+
+    list.innerHTML = "";
+    for (const d of deals) {
+      const canDel = myId && String(d.reporter_id || "") === String(myId);
+
+      const enemy = (d.enemy_player_name || d.enemy_player_id)
+        ? `${esc(d.enemy_player_name || "—")}${d.enemy_player_id ? ` (${esc(d.enemy_player_id)})` : ""}`
+        : "—";
+
+      const price = (d.price !== null && d.price !== undefined) ? `$${esc(d.price)}` : "—";
+      const notes = d.notes ? esc(d.notes) : "";
+
+      list.insertAdjacentHTML("beforeend", `
+        <div class="dealCard" data-deal-id="${esc(d.id)}">
+          <div class="dealRow"><div class="dealLabel">When</div><div class="dealStrong">${esc(d.created_at || "—")}</div></div>
+          <div class="dealRow"><div class="dealLabel">Reporter</div><div class="dealStrong">${esc(d.reporter_name || d.reporter_id || "—")}</div></div>
+          <div class="dealRow"><div class="dealLabel">Enemy</div><div class="dealStrong">${enemy}</div></div>
+          <div class="dealRow"><div class="dealLabel">Item</div><div class="dealStrong">${esc(d.item || "—")} ×${esc(d.qty ?? 1)}</div></div>
+          <div class="dealRow"><div class="dealLabel">Price</div><div class="dealStrong">${price}</div></div>
+          ${notes ? `<div class="dealRow"><div class="dealLabel">Notes</div><div class="dealStrong">${notes}</div></div>` : ""}
+          <div class="dealActions" style="margin-top:8px; display:flex; justify-content:flex-end;">
+            ${canDel ? `<span class="abtn dealDel" data-deal-del="${esc(d.id)}">🗑 Delete</span>` : ``}
+          </div>
+        </div>
+      `);
+    }
   }
 
   function render(state) {
@@ -259,6 +325,9 @@
     $("rt-offline").textContent = `🔴 ${c.offline ?? 0}`;
     $("rt-hospital").textContent = `🏥 ${c.hospital ?? 0}`;
     $("rt-avail").textContent = `✅ Avail: ${state.available_count ?? 0}`;
+
+    // 💊 Med deals
+    renderDeals(state);
 
     const f = state.faction || {};
     $("rt-you-title").textContent = `${(f.tag ? `[${f.tag}] ` : "")}${f.name || ""}`.trim() || "—";
@@ -332,23 +401,20 @@
   }
 
   // ========== draggable shield ==========
-  const POS_KEY = "wrath_shield_pos_v1"; // {top,left} stored
+  const POS_KEY = "wrath_shield_pos_v1";
   function loadPos() {
     const p = GM_getValue(POS_KEY, null);
     if (p && typeof p === "object" && p.top != null && p.left != null) return p;
     const left = Math.max(0, window.innerWidth - 48 - SHIELD_RIGHT_DEFAULT);
     return { top: SHIELD_TOP_DEFAULT, left };
   }
-  function savePos(top, left) {
-    GM_setValue(POS_KEY, { top, left });
-  }
+  function savePos(top, left) { GM_setValue(POS_KEY, { top, left }); }
   function clamp(val, min, max) { return Math.min(max, Math.max(min, val)); }
 
-  // ✅ SCOPED CSS ONLY (fixes Torn Home Screen being affected)
+  // ✅ SCOPED CSS ONLY
   GM_addStyle(`
     #wrath-overlay, #wrath-overlay * { pointer-events: auto !important; }
 
-    /* variables only on our UI */
     #wrath-overlay, #wrath-shield{
       --bg0:#070607;
       --bg1:#0d0a0c;
@@ -374,14 +440,12 @@
       --glowEmber: 0 0 14px rgba(255,122,24,.22), 0 0 28px rgba(255,122,24,.12);
     }
 
-    /* Shield */
     #wrath-shield{
       position:fixed;
       z-index:2147483647;
       width:48px; height:48px; border-radius:14px;
       display:grid; place-items:center;
       cursor:pointer; user-select:none; -webkit-tap-highlight-color:transparent;
-
       background: linear-gradient(180deg, rgba(255,255,255,.09), rgba(255,255,255,.04));
       border:1px solid rgba(255,255,255,.12);
       box-shadow: 0 14px 34px rgba(0,0,0,.60), var(--glowRed);
@@ -392,7 +456,6 @@
       touch-action: none;
     }
 
-    /* Overlay */
     #wrath-overlay{
       position:fixed; inset:0; z-index:2147483646; display:none;
       background:
@@ -407,7 +470,6 @@
     }
     #wrath-overlay * { color: inherit !important; }
 
-    /* Prefix ALL styles */
     #wrath-overlay .sigil{
       height:10px;
       border-radius:999px;
@@ -612,9 +674,44 @@
       box-shadow: var(--glowRed);
     }
 
+    /* 💊 Med deals UI */
+    #wrath-overlay .dealCard{
+      padding:10px;
+      margin:6px 0;
+      border-radius:14px;
+      border:1px solid rgba(255,255,255,.08) !important;
+      background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02)) !important;
+      box-shadow: 0 10px 20px rgba(0,0,0,.20);
+      font-size:12px;
+    }
+    #wrath-overlay .dealRow{ display:flex; justify-content:space-between; gap:10px; margin:4px 0; }
+    #wrath-overlay .dealLabel{ opacity:.75; }
+    #wrath-overlay .dealStrong{ font-weight:950; text-align:right; }
+    #wrath-overlay .dealForm{
+      margin-top:10px;
+      padding:10px;
+      border-radius:14px;
+      border:1px solid rgba(255,255,255,.08) !important;
+      background: linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.02)) !important;
+    }
+    #wrath-overlay .dealGrid{ display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+    #wrath-overlay .dealGrid input, #wrath-overlay .dealGrid textarea{
+      width:100%;
+      box-sizing:border-box;
+      padding:10px;
+      border-radius:12px;
+      border:1px solid rgba(255,255,255,.12) !important;
+      background: rgba(0,0,0,.25) !important;
+      color: var(--text) !important;
+      outline:none;
+      font-size:12px;
+    }
+    #wrath-overlay .dealGrid textarea{ grid-column: 1 / -1; min-height:70px; resize:vertical; }
+    #wrath-overlay .dealHint{ font-size:11px; opacity:.8; margin-top:8px; }
     @media (max-width: 520px){
       #wrath-overlay .name{ max-width: 52vw; }
       #wrath-overlay .abtn{ padding:6px 9px; }
+      #wrath-overlay .dealGrid{ grid-template-columns:1fr; }
     }
   `);
 
@@ -653,6 +750,32 @@
 
       <div id="rt-error" class="err" style="display:none;"></div>
       <div id="rt-war" class="warbox" style="display:none;"></div>
+
+      <!-- 💊 MED DEALS -->
+      <details class="collapsible" id="rt-deals" open>
+        <summary>
+          <span>💊 MED DEALS</span>
+          <span class="pill" id="rt-deals-count">0</span>
+        </summary>
+        <div class="body">
+          <div id="rt-deals-list"></div>
+
+          <div class="dealForm">
+            <div class="dealGrid">
+              <input id="deal-item" placeholder="Item (ex: Xanax, Vicodin)" />
+              <input id="deal-qty" placeholder="Qty (ex: 10)" inputmode="numeric" />
+              <input id="deal-price" placeholder="Price each (optional)" inputmode="numeric" />
+              <input id="deal-enemy-id" placeholder="Enemy player ID (optional)" inputmode="numeric" />
+              <input id="deal-enemy-name" placeholder="Enemy name (optional)" />
+              <textarea id="deal-notes" placeholder="Notes (optional) — terms, delivery, proof, etc."></textarea>
+            </div>
+            <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:10px;">
+              <span class="abtn" id="deal-submit">💊 Add Deal</span>
+            </div>
+            <div class="dealHint">Tip: only the person who added a deal can delete it (trash icon).</div>
+          </div>
+        </div>
+      </details>
 
       <div class="section-title">
         <div>🛡️ YOUR FACTION</div>
@@ -829,6 +952,85 @@
       } else {
         await refreshState();
       }
+    }, true);
+
+    // 💊 Add Deal
+    document.getElementById("deal-submit").addEventListener("click", async (e) => {
+      e.preventDefault(); e.stopPropagation();
+      const tid = cachedId || (await ensureIdOrWarn());
+      if (!tid) return;
+
+      const reporterName = detectPlayerName();
+
+      const item = (document.getElementById("deal-item").value || "").trim();
+      const qty = (document.getElementById("deal-qty").value || "").trim();
+      const price = (document.getElementById("deal-price").value || "").trim();
+      const enemyId = (document.getElementById("deal-enemy-id").value || "").trim();
+      const enemyName = (document.getElementById("deal-enemy-name").value || "").trim();
+      const notes = (document.getElementById("deal-notes").value || "").trim();
+
+      if (!item) {
+        const err = document.getElementById("rt-error");
+        err.style.display = "block";
+        err.textContent = "Med Deals: Item is required.";
+        return;
+      }
+
+      const payload = {
+        reporter_id: String(tid),
+        reporter_name: reporterName || "",
+        item,
+        qty: qty ? Number(qty) : 1,
+        price: price ? Number(price) : null,
+        enemy_player_id: enemyId || null,
+        enemy_player_name: enemyName || null,
+        notes: notes || null,
+      };
+
+      const res = await postMedDeal(payload);
+      if (!res.ok) {
+        const err = document.getElementById("rt-error");
+        err.style.display = "block";
+        err.textContent =
+          "Failed to add deal\n" +
+          (typeof res.body === "string" ? res.body : JSON.stringify(res.body, null, 2));
+        return;
+      }
+
+      // clear form
+      document.getElementById("deal-item").value = "";
+      document.getElementById("deal-qty").value = "";
+      document.getElementById("deal-price").value = "";
+      document.getElementById("deal-enemy-id").value = "";
+      document.getElementById("deal-enemy-name").value = "";
+      document.getElementById("deal-notes").value = "";
+
+      await refreshState();
+    }, true);
+
+    // 💊 Delete Deal (delegated)
+    overlay.addEventListener("click", async (e) => {
+      const t = e.target;
+      if (!(t instanceof HTMLElement)) return;
+      const dealId = t.getAttribute("data-deal-del");
+      if (!dealId) return;
+
+      e.preventDefault(); e.stopPropagation();
+
+      const tid = cachedId || (await ensureIdOrWarn());
+      if (!tid) return;
+
+      const res = await deleteMedDeal(dealId, tid);
+      if (!res.ok) {
+        const err = document.getElementById("rt-error");
+        err.style.display = "block";
+        err.textContent =
+          "Failed to delete deal\n" +
+          (typeof res.body === "string" ? res.body : JSON.stringify(res.body, null, 2));
+        return;
+      }
+
+      await refreshState();
     }, true);
 
     // auto refresh while open

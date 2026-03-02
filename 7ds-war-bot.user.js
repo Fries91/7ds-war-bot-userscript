@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         7DS*: Wrath War-Bot 🛡️ (Wrath Theme + Collapsible + Draggable) [SCOPED FIX + MED DEALS + YES/NO AVAIL + BOUNTY ME] (NEUTRAL DEFAULT)
+// @name         7DS*: Wrath War-Bot 🛡️ (Wrath Theme + Collapsible + Draggable) [SCOPED FIX + MED DEALS + YES/NO AVAIL + CHECKBOXES] (NEUTRAL DEFAULT)
 // @namespace    7ds-wrath-warbot
-// @version      7.5.0
-// @description  Wrath-themed shield overlay matching app.py. Uses /state (CSP-proof). Shield draggable + tap to open/close. YOUR faction has ✅YES/❌NO (availability) + 🎯 Bounty Me. ENEMY has ⚔️ Attack. 💊 Med Deals. ✅ FIX: YES/NO neutral by default; instant connected highlighting on click; Deal Done delete reliable.
+// @version      7.6.0
+// @description  Wrath-themed shield overlay matching app.py. Uses /state (CSP-proof). Shield draggable + tap to open/close. YOUR faction has ✅YES/❌NO (availability) + checkboxes + 🎯 Bounty Me. ENEMY has ⚔️ Attack. 💊 Med Deals. ✅ YES/NO neutral by default; instant connected checkbox+highlight on click; Deal Done delete reliable.
 // @match        https://www.torn.com/*
 // @match        https://torn.com/*
 // @grant        GM_addStyle
@@ -192,13 +192,12 @@
     return `https://www.torn.com/bounties.php?p=add&XID=${encodeURIComponent(String(id || ""))}`;
   }
 
-  // ✅ Neutral default: do NOT apply "on" based on r.available here.
-  // We only show connected highlight after the user clicks.
-  // (Server state still works; on refresh we keep it neutral unless you want otherwise.)
+  // ✅ Neutral default: do NOT set on/off from server here.
+  // We show checkboxes + highlight only after clicking.
   function memberHTML(r, st, mode) {
     const name = esc(r.name || r.id || "Unknown");
     const id = esc(r.id || "");
-    const opted = r.available ? " ✅ OPTED" : ""; // keep the label (optional)
+    const opted = r.available ? " ✅ OPTED" : "";
 
     const right = st === "hospital"
       ? `<span class="hospTimer" data-until="${esc(r.hospital_until ?? "")}">—</span>`
@@ -214,8 +213,15 @@
           <div class="actions">
             <div class="right">${right}</div>
 
-            <span class="abtn yes" data-avail="yes" data-avail-id="${esc(r.id)}">✅ YES</span>
-            <span class="abtn no"  data-avail="no"  data-avail-id="${esc(r.id)}">❌ NO</span>
+            <span class="abtn yes" data-avail="yes" data-avail-id="${esc(r.id)}">
+              <span class="ck" data-ck="yes" aria-hidden="true"></span>
+              ✅ YES
+            </span>
+
+            <span class="abtn no" data-avail="no" data-avail-id="${esc(r.id)}">
+              <span class="ck" data-ck="no" aria-hidden="true"></span>
+              ❌ NO
+            </span>
 
             <a class="abtn bounty" href="${bountyUrlFor(r.id)}" target="_blank" rel="noopener noreferrer">🎯 Bounty Me</a>
           </div>
@@ -417,7 +423,7 @@
     tickHospitalTimers();
   }
 
-  // ✅ SCOPED CSS ONLY (+ yes/no styling)
+  // ✅ SCOPED CSS ONLY (+ checkbox styling)
   GM_addStyle(`
     #wrath-overlay, #wrath-overlay * { pointer-events: auto !important; }
 
@@ -508,8 +514,22 @@
       display:inline-flex; align-items:center; gap:6px; }
     #wrath-overlay .abtn:active{ transform: translateY(1px); }
 
-    #wrath-overlay .abtn.attack{ border-color: rgba(255,122,24,.45) !important; }
-    #wrath-overlay .abtn.bounty{ border-color: rgba(255,42,42,.40) !important; }
+    /* Checkbox (unchecked default) */
+    #wrath-overlay .ck{
+      width:14px; height:14px; border-radius:4px;
+      border:1px solid rgba(255,255,255,.28) !important;
+      background: rgba(0,0,0,.18) !important;
+      display:inline-grid; place-items:center;
+      box-shadow: inset 0 0 0 1px rgba(0,0,0,.25);
+    }
+    #wrath-overlay .ck:after{
+      content:"";
+      width:8px; height:5px;
+      border-left:2px solid transparent;
+      border-bottom:2px solid transparent;
+      transform: rotate(-45deg);
+      opacity:0;
+    }
 
     /* YES/NO base + highlight */
     #wrath-overlay .abtn.yes{ border-color: rgba(0,255,102,.22) !important; }
@@ -518,6 +538,30 @@
     /* highlight ONLY when clicked */
     #wrath-overlay .abtn.yes.on{ border-color: rgba(0,255,102,.55) !important; box-shadow: 0 0 18px rgba(0,255,102,.14); filter:brightness(1.08); }
     #wrath-overlay .abtn.no.on{  border-color: rgba(255,51,51,.55) !important; box-shadow: 0 0 18px rgba(255,51,51,.14); filter:brightness(1.08); }
+
+    /* Checked checkbox visuals */
+    #wrath-overlay .abtn.yes.on .ck{
+      border-color: rgba(0,255,102,.55) !important;
+      box-shadow: 0 0 14px rgba(0,255,102,.12);
+    }
+    #wrath-overlay .abtn.yes.on .ck:after{
+      border-left-color: rgba(0,255,102,.95) !important;
+      border-bottom-color: rgba(0,255,102,.95) !important;
+      opacity:1;
+    }
+
+    #wrath-overlay .abtn.no.on .ck{
+      border-color: rgba(255,51,51,.55) !important;
+      box-shadow: 0 0 14px rgba(255,51,51,.12);
+    }
+    #wrath-overlay .abtn.no.on .ck:after{
+      border-left-color: rgba(255,51,51,.95) !important;
+      border-bottom-color: rgba(255,51,51,.95) !important;
+      opacity:1;
+    }
+
+    #wrath-overlay .abtn.attack{ border-color: rgba(255,122,24,.45) !important; }
+    #wrath-overlay .abtn.bounty{ border-color: rgba(255,42,42,.40) !important; }
 
     #wrath-overlay .dealCard{ padding:10px; margin:6px 0; border-radius:14px; border:1px solid rgba(255,255,255,.08) !important;
       background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02)) !important;
@@ -654,14 +698,12 @@
     document.body.appendChild(shield);
     document.body.appendChild(overlay);
 
-    let cachedId = null;
-
     // ===== draggable logic =====
     let dragging = false, moved = false;
     let startX = 0, startY = 0, startTop = 0, startLeft = 0;
 
     function isOpen() { return overlay.style.display === "block"; }
-    function openOverlay() { overlay.style.display = "block"; cachedId = cachedId || detectTornId(); refreshState(); }
+    function openOverlay() { overlay.style.display = "block"; refreshState(); }
     function closeOverlay() { overlay.style.display = "none"; }
     function toggleOverlay() { isOpen() ? closeOverlay() : openOverlay(); }
 
@@ -720,23 +762,11 @@
 
     document.getElementById("rt-open-app").addEventListener("click", async (e) => {
       e.preventDefault(); e.stopPropagation();
-      const tid = await (async function ensureIdOrWarn() {
-        const t = detectTornId();
-        if (!t) {
-          const err = document.getElementById("rt-error");
-          if (err) {
-            err.style.display = "block";
-            err.textContent = "Couldn't detect your Torn ID yet.\nOpen your profile/sidebar then try again.";
-          }
-          return null;
-        }
-        return t;
-      })();
-      cachedId = cachedId || tid;
-      openAppPanelWithId(cachedId);
+      const tid = detectTornId();
+      openAppPanelWithId(tid);
     }, true);
 
-    // ✅ YES/NO availability per member (neutral default + instant connected toggle)
+    // ✅ YES/NO availability per member (connected highlight + checkboxes)
     overlay.addEventListener("click", async (e) => {
       const target = e.target;
       if (!(target instanceof HTMLElement)) return;
@@ -753,11 +783,11 @@
       const err = document.getElementById("rt-error");
       if (err) { err.style.display = "none"; err.textContent = ""; }
 
-      // Connected buttons: highlight clicked one, unhighlight the other
       const memberRow = btn.closest(".member");
       const yesBtn = memberRow ? memberRow.querySelector('[data-avail="yes"][data-avail-id]') : null;
       const noBtn  = memberRow ? memberRow.querySelector('[data-avail="no"][data-avail-id]') : null;
 
+      // instant UI toggle
       if (yesBtn && noBtn) {
         if (available) {
           yesBtn.classList.add("on");
@@ -777,7 +807,6 @@
 
       const res = await postAvailability(memberId, available, "");
       if (!res.ok) {
-        // re-enable
         allBtns.forEach(b => { if (b instanceof HTMLElement) b.style.pointerEvents = ""; });
         btn.textContent = oldText || (available ? "✅ YES" : "❌ NO");
 
@@ -788,7 +817,6 @@
             (typeof res.body === "string" ? res.body : JSON.stringify(res.body, null, 2));
         }
 
-        // refresh so UI matches server truth
         await refreshState();
         return;
       }
@@ -800,18 +828,7 @@
     document.getElementById("deal-submit").addEventListener("click", async (e) => {
       e.preventDefault(); e.stopPropagation();
 
-      cachedId = cachedId || (await (async () => {
-        const t = detectTornId();
-        if (!t) {
-          const err = document.getElementById("rt-error");
-          if (err) {
-            err.style.display = "block";
-            err.textContent = "Couldn't detect your Torn ID yet.\nOpen your profile/sidebar then try again.";
-          }
-          return null;
-        }
-        return t;
-      })());
+      const cachedId = detectTornId();
       if (!cachedId) return;
 
       const reporterName = detectPlayerName();
@@ -861,7 +878,7 @@
       await refreshState();
     }, true);
 
-    // 💊 Deal Done delete (reliable)
+    // 💊 Deal Done delete
     overlay.addEventListener("click", async (e) => {
       const target = e.target;
       if (!(target instanceof HTMLElement)) return;
@@ -873,8 +890,8 @@
 
       e.preventDefault(); e.stopPropagation();
 
-      cachedId = cachedId || (await (async () => detectTornId())());
-      if (!cachedId) return;
+      const requesterId = detectTornId();
+      if (!requesterId) return;
 
       const err = document.getElementById("rt-error");
       if (err) { err.style.display = "none"; err.textContent = ""; }
@@ -891,15 +908,7 @@
         if (remaining === 0) list.innerHTML = `<div class="section-empty">No deals logged yet.</div>`;
       }
 
-      // update cached state so render won't re-add
-      try {
-        const st = window.__wrath_last_state;
-        if (st && Array.isArray(st.med_deals)) {
-          st.med_deals = st.med_deals.filter(d => String(d.id) !== String(dealId));
-        }
-      } catch (_) {}
-
-      const res = await deleteMedDeal(dealId, cachedId);
+      const res = await deleteMedDeal(dealId, requesterId);
       if (!res.ok) {
         if (err) {
           err.style.display = "block";

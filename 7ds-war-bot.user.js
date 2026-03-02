@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         7DS*: Wrath War-Bot 🛡️ (Wrath Theme + Collapsible + Draggable)
+// @name         7DS*: Wrath War-Bot 🛡️ (Wrath Theme + Collapsible + Draggable) [SCOPED FIX]
 // @namespace    7ds-wrath-warbot
-// @version      7.0.1
-// @description  Wrath-themed shield overlay matching app.py. Uses /state (CSP-proof). OPT (token 666). OFFLINE sections collapsible. Shield is DRAGGABLE. Click shield toggles open/close. YOUR faction has 🎯 Bounty buttons. ENEMY has ⚔️ Attack buttons. No close button.
+// @version      7.0.2
+// @description  Wrath-themed shield overlay matching app.py. Uses /state (CSP-proof). OPT (token 666). OFFLINE sections collapsible. Shield is DRAGGABLE. Tap shield toggles open/close. YOUR faction has 🎯 Bounty buttons. ENEMY has ⚔️ Attack buttons. ✅ FIX: All CSS is scoped to #wrath-overlay/#wrath-shield so Torn Home Screen is NOT affected.
 // @match        https://www.torn.com/*
 // @match        https://torn.com/*
 // @grant        GM_addStyle
@@ -133,8 +133,7 @@
       if (!untilMs) { el.textContent = "—"; continue; }
       const left = untilMs - now;
       el.textContent = fmtLeft(left);
-      if (left <= 0) el.style.opacity = "0.85";
-      else el.style.opacity = "1";
+      el.style.opacity = (left <= 0) ? "0.85" : "1";
     }
   }
 
@@ -218,11 +217,12 @@
     for (const r of arr) el.insertAdjacentHTML("beforeend", memberHTML(r, st, mode));
   }
 
+  function availKey2(tornId) { return `wrath_avail_${tornId || "unknown"}`; }
   function syncOptUI(tornId) {
     const btn = document.getElementById("rt-opt");
     const txt = document.getElementById("rt-opt-text");
     if (!btn || !txt) return;
-    const on = getLocalAvail(tornId);
+    const on = !!GM_getValue(availKey2(tornId), false);
     btn.classList.toggle("on", on);
     txt.textContent = on ? "OPTED IN" : "OPT IN";
   }
@@ -336,7 +336,6 @@
   function loadPos() {
     const p = GM_getValue(POS_KEY, null);
     if (p && typeof p === "object" && p.top != null && p.left != null) return p;
-    // default: convert right->left
     const left = Math.max(0, window.innerWidth - 48 - SHIELD_RIGHT_DEFAULT);
     return { top: SHIELD_TOP_DEFAULT, left };
   }
@@ -345,11 +344,12 @@
   }
   function clamp(val, min, max) { return Math.min(max, Math.max(min, val)); }
 
-  // ========== UI ==========
+  // ✅ SCOPED CSS ONLY (fixes Torn Home Screen being affected)
   GM_addStyle(`
     #wrath-overlay, #wrath-overlay * { pointer-events: auto !important; }
 
-    :root{
+    /* variables only on our UI */
+    #wrath-overlay, #wrath-shield{
       --bg0:#070607;
       --bg1:#0d0a0c;
       --text:#f4f2f3;
@@ -374,6 +374,7 @@
       --glowEmber: 0 0 14px rgba(255,122,24,.22), 0 0 28px rgba(255,122,24,.12);
     }
 
+    /* Shield */
     #wrath-shield{
       position:fixed;
       z-index:2147483647;
@@ -391,13 +392,14 @@
       touch-action: none;
     }
 
+    /* Overlay */
     #wrath-overlay{
       position:fixed; inset:0; z-index:2147483646; display:none;
       background:
         radial-gradient(1200px 700px at 18% 10%, rgba(255,42,42,.10), transparent 55%),
         radial-gradient(900px 600px at 82% 0%, rgba(255,122,24,.08), transparent 60%),
         linear-gradient(180deg, var(--bg0), var(--bg1)) !important;
-      color: var(--text);
+      color: var(--text) !important;
       font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
       overflow-y:auto;
       padding:10px;
@@ -405,7 +407,8 @@
     }
     #wrath-overlay * { color: inherit !important; }
 
-    .sigil{
+    /* Prefix ALL styles */
+    #wrath-overlay .sigil{
       height:10px;
       border-radius:999px;
       background: linear-gradient(90deg, transparent, rgba(255,42,42,.55), rgba(255,122,24,.45), transparent) !important;
@@ -416,7 +419,7 @@
       border:1px solid rgba(255,255,255,.06) !important;
       box-shadow: var(--glowRed);
     }
-    .sigil:after{
+    #wrath-overlay .sigil:after{
       content:"";
       position:absolute;
       top:-40px; left:-60%;
@@ -424,16 +427,13 @@
       height:120px;
       background: linear-gradient(90deg, transparent, rgba(255,255,255,.10), transparent);
       transform: rotate(18deg);
-      animation: sweep 5.8s linear infinite;
+      animation: wrath_sweep 5.8s linear infinite;
       opacity:.5;
     }
-    @keyframes sweep{
-      0%{ left:-60%; }
-      100%{ left:140%; }
-    }
+    @keyframes wrath_sweep{ 0%{ left:-60%; } 100%{ left:140%; } }
 
-    .topbar { display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:10px; }
-    .title {
+    #wrath-overlay .topbar { display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:10px; }
+    #wrath-overlay .title {
       font-weight: 950;
       letter-spacing: 1.1px;
       font-size: 16px;
@@ -441,9 +441,9 @@
       text-transform: uppercase;
       text-shadow: var(--glowEmber);
     }
-    .meta { font-size:12px; opacity:.96; display:flex; align-items:center; gap:8px; flex-wrap:wrap; color: var(--text) !important; }
+    #wrath-overlay .meta { font-size:12px; opacity:.96; display:flex; align-items:center; gap:8px; flex-wrap:wrap; color: var(--text) !important; }
 
-    .pill {
+    #wrath-overlay .pill {
       display:inline-flex;
       align-items:center;
       gap:6px;
@@ -456,7 +456,7 @@
       color: var(--text) !important;
     }
 
-    .btn {
+    #wrath-overlay .btn {
       cursor:pointer; user-select:none;
       padding:6px 10px; border-radius:999px;
       background: linear-gradient(180deg, rgba(255,255,255,.075), rgba(255,255,255,.04)) !important;
@@ -465,12 +465,12 @@
       color: var(--text) !important;
       box-shadow: 0 8px 18px rgba(0,0,0,.30);
     }
-    .btn:active { transform: translateY(1px); }
-    .btn.on { border-color: rgba(0,255,102,.35) !important; box-shadow: 0 0 18px rgba(0,255,102,.10); }
+    #wrath-overlay .btn:active { transform: translateY(1px); }
+    #wrath-overlay .btn.on { border-color: rgba(0,255,102,.35) !important; box-shadow: 0 0 18px rgba(0,255,102,.10); }
 
-    .divider { margin:14px 0; height:1px; background:var(--line) !important; }
+    #wrath-overlay .divider { margin:14px 0; height:1px; background:var(--line) !important; }
 
-    .section-title {
+    #wrath-overlay .section-title {
       font-weight: 950;
       letter-spacing: 1.0px;
       margin-top: 10px;
@@ -483,9 +483,9 @@
       color: var(--gold) !important;
       text-shadow: var(--glowEmber);
     }
-    .section-title .small { font-size:12px; opacity:.9; font-weight:700; color: var(--text) !important; text-shadow:none; }
+    #wrath-overlay .section-title .small { font-size:12px; opacity:.9; font-weight:700; color: var(--text) !important; text-shadow:none; }
 
-    h2 {
+    #wrath-overlay h2 {
       margin:12px 0 6px;
       padding-bottom:6px;
       border-bottom:1px solid rgba(255,255,255,.10) !important;
@@ -497,7 +497,7 @@
       display:flex; justify-content:space-between; align-items:center; gap:10px;
     }
 
-    .member {
+    #wrath-overlay .member {
       padding:9px 10px;
       margin:6px 0;
       border-radius:12px;
@@ -513,7 +513,7 @@
       position: relative;
       overflow: hidden;
     }
-    .member:after{
+    #wrath-overlay .member:after{
       content:"";
       position:absolute;
       inset:-1px;
@@ -524,25 +524,21 @@
       opacity:.8;
     }
 
-    .left { display:flex; flex-direction:column; gap:2px; min-width:0; position:relative; z-index:1; }
-    .name { font-weight:900; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:58vw; color: var(--text) !important; }
-    .sub { opacity:.82; font-size:11px; color: var(--text) !important; }
-    .right { opacity:.96; font-size:12px; white-space:nowrap; color: var(--text) !important; position:relative; z-index:1; }
+    #wrath-overlay .left { display:flex; flex-direction:column; gap:2px; min-width:0; position:relative; z-index:1; }
+    #wrath-overlay .name { font-weight:900; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:58vw; color: var(--text) !important; }
+    #wrath-overlay .sub { opacity:.82; font-size:11px; color: var(--text) !important; }
+    #wrath-overlay .right { opacity:.96; font-size:12px; white-space:nowrap; color: var(--text) !important; position:relative; z-index:1; }
 
-    .online{ border-left:4px solid var(--green) !important; }
-    .idle{ border-left:4px solid var(--yellow) !important; }
-    .offline{ border-left:4px solid var(--red) !important; box-shadow: var(--glowRed); }
-    .hospital{ border-left:4px solid var(--violet) !important; }
+    #wrath-overlay .online{ border-left:4px solid var(--green) !important; }
+    #wrath-overlay .idle{ border-left:4px solid var(--yellow) !important; }
+    #wrath-overlay .offline{ border-left:4px solid var(--red) !important; box-shadow: var(--glowRed); }
+    #wrath-overlay .hospital{ border-left:4px solid var(--violet) !important; }
 
-    .hospTimer{
-      font-weight: 900;
-      letter-spacing: .4px;
-      text-shadow: var(--glowEmber);
-    }
+    #wrath-overlay .hospTimer{ font-weight: 900; letter-spacing: .4px; text-shadow: var(--glowEmber); }
 
-    .section-empty { opacity:.85; font-size:12px; padding:8px 2px; color: var(--text) !important; }
+    #wrath-overlay .section-empty { opacity:.85; font-size:12px; padding:8px 2px; color: var(--text) !important; }
 
-    .err {
+    #wrath-overlay .err {
       margin-top:10px; padding:10px; border-radius:12px;
       background: var(--dangerBg) !important;
       border:1px solid var(--dangerBorder) !important;
@@ -551,7 +547,7 @@
       box-shadow: var(--glowRed);
     }
 
-    .warbox {
+    #wrath-overlay .warbox {
       margin-top:10px; padding:10px; border-radius:14px;
       background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03)) !important;
       border:1px solid rgba(255,255,255,.10) !important;
@@ -559,11 +555,10 @@
       color: var(--text) !important;
       box-shadow: var(--glowEmber);
     }
-    .warrow { display:flex; justify-content:space-between; gap:10px; margin:3px 0; }
-    .label { opacity:.8; color: var(--muted) !important; }
+    #wrath-overlay .warrow { display:flex; justify-content:space-between; gap:10px; margin:3px 0; }
+    #wrath-overlay .label { opacity:.8; color: var(--muted) !important; }
 
-    /* ✅ Collapsible OFFLINE (details/summary) */
-    .collapsible{
+    #wrath-overlay .collapsible{
       border-radius: 14px;
       border: 1px solid rgba(255,255,255,.10) !important;
       background: linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.02)) !important;
@@ -571,7 +566,7 @@
       overflow:hidden;
       margin: 10px 0;
     }
-    .collapsible summary{
+    #wrath-overlay .collapsible summary{
       list-style:none;
       display:flex;
       align-items:center;
@@ -584,26 +579,16 @@
       text-transform: uppercase;
       user-select:none;
     }
-    .collapsible summary::-webkit-details-marker{ display:none; }
-    .collapsible summary:after{
-      content:"▾";
-      opacity:.9;
-      margin-left:8px;
-    }
-    .collapsible[open] summary:after{ content:"▴"; }
-    .collapsible .body{ padding: 0 10px 10px; }
+    #wrath-overlay .collapsible summary::-webkit-details-marker{ display:none; }
+    #wrath-overlay .collapsible summary:after{ content:"▾"; opacity:.9; margin-left:8px; }
+    #wrath-overlay .collapsible[open] summary:after{ content:"▴"; }
+    #wrath-overlay .collapsible .body{ padding: 0 10px 10px; }
 
-    /* ✅ actions + buttons */
-    .actions{
-      display:flex;
-      align-items:center;
-      gap:8px;
-      justify-content:flex-end;
-      position:relative;
-      z-index:2;
-      white-space:nowrap;
+    #wrath-overlay .actions{
+      display:flex; align-items:center; gap:8px; justify-content:flex-end;
+      position:relative; z-index:2; white-space:nowrap;
     }
-    .abtn{
+    #wrath-overlay .abtn{
       cursor:pointer; user-select:none;
       padding:6px 10px; border-radius:12px;
       border:1px solid rgba(255,255,255,.14) !important;
@@ -612,27 +597,24 @@
       color: var(--text) !important;
       text-decoration:none !important;
       box-shadow: 0 10px 18px rgba(0,0,0,.24);
-      display:inline-flex;
-      align-items:center;
-      gap:6px;
+      display:inline-flex; align-items:center; gap:6px;
     }
-    .abtn:active{ transform: translateY(1px); }
+    #wrath-overlay .abtn:active{ transform: translateY(1px); }
 
-    .abtn.attack{
+    #wrath-overlay .abtn.attack{
       border-color: rgba(255,122,24,.45) !important;
       background: linear-gradient(180deg, rgba(255,122,24,.22), rgba(255,42,42,.10)) !important;
       box-shadow: var(--glowEmber);
     }
-
-    .abtn.bounty{
+    #wrath-overlay .abtn.bounty{
       border-color: rgba(255,42,42,.40) !important;
       background: linear-gradient(180deg, rgba(255,42,42,.20), rgba(255,122,24,.10)) !important;
       box-shadow: var(--glowRed);
     }
 
     @media (max-width: 520px){
-      .name{ max-width: 52vw; }
-      .abtn{ padding:6px 9px; }
+      #wrath-overlay .name{ max-width: 52vw; }
+      #wrath-overlay .abtn{ padding:6px 9px; }
     }
   `);
 
@@ -686,7 +668,6 @@
       <h2>🏥 HOSPITAL <span class="pill" id="rt-you-hosp-count">0</span></h2>
       <div id="rt-you-hosp"></div>
 
-      <!-- ✅ OFFLINE COLLAPSIBLE -->
       <details class="collapsible" id="rt-you-offline">
         <summary>
           <span>🔴 OFFLINE (30+ mins)</span>
@@ -712,7 +693,6 @@
         <h2>🏥 ENEMY HOSPITAL <span class="pill" id="rt-them-hosp-count">0</span></h2>
         <div id="rt-them-hosp"></div>
 
-        <!-- ✅ ENEMY OFFLINE COLLAPSIBLE -->
         <details class="collapsible" id="rt-them-offline">
           <summary>
             <span>🔴 ENEMY OFFLINE (30+ mins)</span>
@@ -769,7 +749,6 @@
       const dx = p.x - startX;
       const dy = p.y - startY;
 
-      // only treat as drag after a small threshold (so taps still click)
       if (!moved && (Math.abs(dx) > 6 || Math.abs(dy) > 6)) moved = true;
 
       if (moved) {
@@ -797,14 +776,12 @@
       const left = parseFloat(shield.style.left || "0");
       savePos(top, left);
 
-      // if it wasn't dragged, treat as click -> toggle overlay
       if (!moved) toggleOverlay();
 
       ev.preventDefault();
       ev.stopPropagation();
     }
 
-    // pointer events (best) + touch fallback
     shield.addEventListener("pointerdown", onDown, true);
     window.addEventListener("pointermove", onMove, true);
     window.addEventListener("pointerup", onUp, true);

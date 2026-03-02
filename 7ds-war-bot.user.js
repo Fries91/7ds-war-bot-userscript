@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         7DS*: Wrath War-Bot 🛡️ (Wrath Theme + Collapsible + Draggable) [SCOPED FIX + MED DEALS + LOCAL YES/NO + CHAIN SITTERS]
+// @name         7DS*: Wrath War-Bot 🛡️ (Wrath Theme + Collapsible + Draggable) [SCOPED FIX + MED DEALS + LOCAL YES/NO (TOGGLE+CHECK) + CHAIN SITTERS]
 // @namespace    7ds-wrath-warbot
-// @version      7.8.0
-// @description  Wrath-themed shield overlay matching app.py. Uses /state (CSP-proof). Shield draggable + tap to open/close. ✅ YES/NO is LOCAL only. 🔗 OPT IN button beside every member (self-only). Chain Sitters box shows ONLY opted-in members. 💊 Med Deals delete removes instantly from screen + updates count, then deletes on server (DELETE BODY to avoid 405).
+// @version      7.8.1
+// @description  Wrath-themed shield overlay matching app.py. Uses /state (CSP-proof). Shield draggable + tap to open/close. ✅ YES/NO is LOCAL only (toggle button + checkbox). 🔗 OPT IN button beside every member (self-only). Chain Sitters box shows ONLY opted-in members. 💊 Med Deals delete removes instantly from screen + updates count, then deletes on server (DELETE BODY to avoid 405).
 // @match        https://www.torn.com/*
 // @match        https://torn.com/*
 // @grant        GM_addStyle
@@ -30,7 +30,8 @@
   let WRATH_BUSY = false;
 
   // ===== local YES/NO storage =====
-  const LOCAL_PREFIX = "wrath_local_yesno_v1_"; // + memberId -> "yes"|"no"|""
+  // values: "yes" | "no" | ""
+  const LOCAL_PREFIX = "wrath_local_yesno_v1_"; // + memberId
   function getLocalChoice(memberId) {
     return (GM_getValue(LOCAL_PREFIX + String(memberId || ""), "") || "").toString();
   }
@@ -206,6 +207,16 @@
     return `https://www.torn.com/bounties.php?p=add&XID=${encodeURIComponent(String(id || ""))}`;
   }
 
+  // ===== YES/NO toggle: one button + one checkbox =====
+  function nextChoice(cur) {
+    // cycles between yes <-> no (default goes to yes)
+    if (cur === "yes") return "no";
+    return "yes";
+  }
+  function labelForChoice(choice) {
+    return choice === "yes" ? "✅ YES" : "❌ NO";
+  }
+
   function memberHTML(r, st, mode, meId) {
     const name = esc(r.name || r.id || "Unknown");
     const id = esc(r.id || "");
@@ -215,9 +226,8 @@
       : esc(fmtMins(r.minutes));
 
     if (mode === "you") {
-      const choice = getLocalChoice(r.id);
-      const yesOn = choice === "yes" ? " on" : "";
-      const noOn  = choice === "no"  ? " on" : "";
+      const choice = getLocalChoice(r.id); // "yes"|"no"|"" ("" treated as "no" visually)
+      const isYes = choice === "yes";
 
       // 🔗 OPT IN button beside each member (self-only)
       const isMe = !!meId && String(meId) === String(r.id);
@@ -225,6 +235,10 @@
       const chainLabel = opted ? "✅ CHAIN SITTER" : "🔗 OPT IN";
       const chainCls = opted ? " on" : "";
       const chainDisabled = isMe ? "" : 'data-disabled="1" title="Only you can toggle your own opt status."';
+
+      const toggleCls = isYes ? " yes" : " no";
+      const toggleText = labelForChoice(isYes ? "yes" : "no");
+      const chkCls = isYes ? " on" : "";
 
       return `
         <div class="member ${st}">
@@ -239,14 +253,12 @@
               ${chainLabel}
             </span>
 
-            <span class="abtn yes${yesOn}" data-local="yes" data-local-id="${esc(r.id)}">
-              <span class="ck" aria-hidden="true"></span>
-              <span class="lbl">✅ YES</span>
+            <span class="abtn ynToggle${toggleCls}" data-yn-toggle="1" data-yn-id="${esc(r.id)}">
+              ${toggleText}
             </span>
 
-            <span class="abtn no${noOn}" data-local="no" data-local-id="${esc(r.id)}">
+            <span class="ynBox${chkCls}" data-yn-box="1" data-yn-id="${esc(r.id)}" title="Checked = YES, Unchecked = NO">
               <span class="ck" aria-hidden="true"></span>
-              <span class="lbl">❌ NO</span>
             </span>
 
             <a class="abtn bounty" href="${bountyUrlFor(r.id)}" target="_blank" rel="noopener noreferrer">🎯 Bounty Me</a>
@@ -369,7 +381,6 @@
   }
 
   // ✅ Chain Sitters = ONLY opted-in members
-  // Prefer state.chain_sitters if app.py provides it; else fallback to rows where available===true
   function buildChainSittersFromState(state) {
     const fromServer = Array.isArray(state.chain_sitters) ? state.chain_sitters : null;
     if (fromServer) {
@@ -596,6 +607,7 @@
     #wrath-overlay .sub{ opacity:.82; font-size:11px; }
 
     #wrath-overlay .actions{ display:flex; align-items:center; gap:8px; justify-content:flex-end; position:relative; z-index:2; white-space:nowrap; }
+
     #wrath-overlay .abtn{ cursor:pointer; user-select:none; padding:6px 10px; border-radius:12px;
       border:1px solid rgba(255,255,255,.14) !important;
       background: linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.03)) !important;
@@ -620,24 +632,36 @@
       opacity:0;
     }
 
-    #wrath-overlay .abtn.yes{ border-color: rgba(0,255,102,.22) !important; }
-    #wrath-overlay .abtn.no{  border-color: rgba(255,51,51,.22) !important; }
-
-    #wrath-overlay .abtn.yes.on{ border-color: rgba(0,255,102,.55) !important; box-shadow: 0 0 18px rgba(0,255,102,.14); filter:brightness(1.08); }
-    #wrath-overlay .abtn.no.on{  border-color: rgba(255,51,51,.55) !important; box-shadow: 0 0 18px rgba(255,51,51,.14); filter:brightness(1.08); }
-
-    #wrath-overlay .abtn.yes.on .ck{ border-color: rgba(0,255,102,.55) !important; box-shadow: 0 0 14px rgba(0,255,102,.12); }
-    #wrath-overlay .abtn.yes.on .ck:after{ border-left-color: rgba(0,255,102,.95) !important; border-bottom-color: rgba(0,255,102,.95) !important; opacity:1; }
-
-    #wrath-overlay .abtn.no.on .ck{ border-color: rgba(255,51,51,.55) !important; box-shadow: 0 0 14px rgba(255,51,51,.12); }
-    #wrath-overlay .abtn.no.on .ck:after{ border-left-color: rgba(255,51,51,.95) !important; border-bottom-color: rgba(255,51,51,.95) !important; opacity:1; }
-
-    #wrath-overlay .abtn.attack{ border-color: rgba(255,122,24,.45) !important; }
-    #wrath-overlay .abtn.bounty{ border-color: rgba(255,42,42,.40) !important; }
-
+    /* 🔗 chain */
     #wrath-overlay .abtn.chain{ border-color: rgba(255,210,74,.45) !important; }
     #wrath-overlay .abtn.chain.on{ border-color: rgba(0,255,102,.55) !important; box-shadow: 0 0 16px rgba(0,255,102,.12); }
     #wrath-overlay .abtn.chain[data-disabled="1"]{ opacity:.55; pointer-events:none; }
+
+    /* ✅ NEW: YES/NO toggle button */
+    #wrath-overlay .abtn.ynToggle{ border-color: rgba(255,255,255,.14) !important; }
+    #wrath-overlay .abtn.ynToggle.yes{ border-color: rgba(0,255,102,.45) !important; box-shadow: 0 0 16px rgba(0,255,102,.10); }
+    #wrath-overlay .abtn.ynToggle.no{  border-color: rgba(255,51,51,.45) !important; box-shadow: 0 0 16px rgba(255,51,51,.08); }
+
+    /* ✅ NEW: checkbox beside toggle */
+    #wrath-overlay .ynBox{
+      cursor:pointer; user-select:none;
+      padding:6px 8px;
+      border-radius:12px;
+      border:1px solid rgba(255,255,255,.14) !important;
+      background: linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.03)) !important;
+      box-shadow:0 10px 18px rgba(0,0,0,.24);
+      display:inline-flex; align-items:center;
+    }
+    #wrath-overlay .ynBox.on{
+      border-color: rgba(0,255,102,.55) !important;
+      box-shadow: 0 0 16px rgba(0,255,102,.12);
+      filter: brightness(1.08);
+    }
+    #wrath-overlay .ynBox.on .ck{ border-color: rgba(0,255,102,.55) !important; box-shadow: 0 0 14px rgba(0,255,102,.12); }
+    #wrath-overlay .ynBox.on .ck:after{ border-left-color: rgba(0,255,102,.95) !important; border-bottom-color: rgba(0,255,102,.95) !important; opacity:1; }
+
+    #wrath-overlay .abtn.attack{ border-color: rgba(255,122,24,.45) !important; }
+    #wrath-overlay .abtn.bounty{ border-color: rgba(255,42,42,.40) !important; }
 
     #wrath-overlay .dealCard{ padding:10px; margin:6px 0; border-radius:14px; border:1px solid rgba(255,255,255,.08) !important;
       background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02)) !important;
@@ -863,34 +887,44 @@
       openAppPanelWithId(tid);
     }, true);
 
-    // ✅ LOCAL YES/NO (stays checked, NOT connected to server)
+    // ✅ LOCAL YES/NO: one toggle button + one checkbox (checked = YES, unchecked = NO)
+    function applyYesNoUI(rowEl, memberId, choice) {
+      const toggleBtn = rowEl.querySelector(`[data-yn-toggle="1"][data-yn-id="${CSS.escape(String(memberId))}"]`);
+      const boxBtn = rowEl.querySelector(`[data-yn-box="1"][data-yn-id="${CSS.escape(String(memberId))}"]`);
+      const isYes = choice === "yes";
+
+      if (toggleBtn) {
+        toggleBtn.classList.toggle("yes", isYes);
+        toggleBtn.classList.toggle("no", !isYes);
+        toggleBtn.textContent = labelForChoice(isYes ? "yes" : "no");
+      }
+      if (boxBtn) {
+        boxBtn.classList.toggle("on", isYes);
+      }
+    }
+
     overlay.addEventListener("click", async (e) => {
       const target = e.target;
       if (!(target instanceof HTMLElement)) return;
 
-      const btn = target.closest("[data-local][data-local-id]");
-      if (!btn) return;
+      const toggle = target.closest('[data-yn-toggle="1"][data-yn-id]');
+      const box = target.closest('[data-yn-box="1"][data-yn-id]');
+      if (!toggle && !box) return;
 
       e.preventDefault(); e.stopPropagation();
 
-      const memberId = btn.getAttribute("data-local-id");
-      const which = btn.getAttribute("data-local"); // "yes" or "no"
+      const el = toggle || box;
+      const memberId = el.getAttribute("data-yn-id");
+      if (!memberId) return;
 
-      const row = btn.closest(".member");
+      const row = el.closest(".member");
       if (!row) return;
 
-      const yesBtn = row.querySelector('[data-local="yes"][data-local-id]');
-      const noBtn  = row.querySelector('[data-local="no"][data-local-id]');
-
-      if (which === "yes") {
-        setLocalChoice(memberId, "yes");
-        if (yesBtn) yesBtn.classList.add("on");
-        if (noBtn)  noBtn.classList.remove("on");
-      } else {
-        setLocalChoice(memberId, "no");
-        if (noBtn)  noBtn.classList.add("on");
-        if (yesBtn) yesBtn.classList.remove("on");
-      }
+      const current = getLocalChoice(memberId);
+      // clicking either control flips yes<->no (default => yes)
+      const next = nextChoice(current);
+      setLocalChoice(memberId, next);
+      applyYesNoUI(row, memberId, next);
     }, true);
 
     // 🔗 OPT IN toggle (REAL server, self-only)

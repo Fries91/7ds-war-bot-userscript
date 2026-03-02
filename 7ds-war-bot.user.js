@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         7DS*: Wrath War-Bot 🛡️ (Wrath Theme + Collapsible + Draggable) [SCOPED FIX + MED DEALS ENEMY MEMBERS + YES/NO AVAIL + BOUNTY ME] (DELETE FIX)
+// @name         7DS*: Wrath War-Bot 🛡️ (Wrath Theme + Collapsible + Draggable) [SCOPED FIX + MED DEALS + YES/NO AVAIL + BOUNTY ME] (NEUTRAL DEFAULT)
 // @namespace    7ds-wrath-warbot
-// @version      7.4.1
-// @description  Wrath-themed shield overlay matching app.py. Uses /state (CSP-proof). OPT (token 666). OFFLINE sections collapsible. Shield is DRAGGABLE. Tap shield toggles open/close. YOUR faction has ✅YES/❌NO (availability) + 🎯 Bounty Me. ENEMY has ⚔️ Attack. 💊 Med Deals (Enemy MEMBER dropdown + Our Member dropdown + Notes + Accept + Deal Done delete). ✅ CSS scoped. ✅ FIX: Deal Done now removes reliably + updates cached state.
+// @version      7.5.0
+// @description  Wrath-themed shield overlay matching app.py. Uses /state (CSP-proof). Shield draggable + tap to open/close. YOUR faction has ✅YES/❌NO (availability) + 🎯 Bounty Me. ENEMY has ⚔️ Attack. 💊 Med Deals. ✅ FIX: YES/NO neutral by default; instant connected highlighting on click; Deal Done delete reliable.
 // @match        https://www.torn.com/*
 // @match        https://torn.com/*
 // @grant        GM_addStyle
@@ -112,8 +112,6 @@
   }
 
   function deleteMedDeal(dealId, requesterId) {
-    // URL style delete supported by your app.py:
-    // DELETE /api/med_deals/<id>?token=...&requester_id=...
     return httpJson(
       "DELETE",
       `${API_DEALS}/${encodeURIComponent(String(dealId))}?token=${encodeURIComponent(AVAIL_TOKEN)}&requester_id=${encodeURIComponent(String(requesterId || ""))}`,
@@ -194,19 +192,19 @@
     return `https://www.torn.com/bounties.php?p=add&XID=${encodeURIComponent(String(id || ""))}`;
   }
 
+  // ✅ Neutral default: do NOT apply "on" based on r.available here.
+  // We only show connected highlight after the user clicks.
+  // (Server state still works; on refresh we keep it neutral unless you want otherwise.)
   function memberHTML(r, st, mode) {
     const name = esc(r.name || r.id || "Unknown");
     const id = esc(r.id || "");
-    const opted = r.available ? " ✅ OPTED" : "";
+    const opted = r.available ? " ✅ OPTED" : ""; // keep the label (optional)
 
     const right = st === "hospital"
       ? `<span class="hospTimer" data-until="${esc(r.hospital_until ?? "")}">—</span>`
       : esc(fmtMins(r.minutes));
 
     if (mode === "you") {
-      const yesOn = r.available ? " on" : "";
-      const noOn  = !r.available ? " on" : "";
-
       return `
         <div class="member ${st}">
           <div class="left">
@@ -216,8 +214,8 @@
           <div class="actions">
             <div class="right">${right}</div>
 
-            <span class="abtn yes${yesOn}" data-avail="yes" data-avail-id="${esc(r.id)}">✅ YES</span>
-            <span class="abtn no${noOn}" data-avail="no" data-avail-id="${esc(r.id)}">❌ NO</span>
+            <span class="abtn yes" data-avail="yes" data-avail-id="${esc(r.id)}">✅ YES</span>
+            <span class="abtn no"  data-avail="no"  data-avail-id="${esc(r.id)}">❌ NO</span>
 
             <a class="abtn bounty" href="${bountyUrlFor(r.id)}" target="_blank" rel="noopener noreferrer">🎯 Bounty Me</a>
           </div>
@@ -247,30 +245,6 @@
     }
     for (const r of arr) el.insertAdjacentHTML("beforeend", memberHTML(r, st, mode));
   }
-
-  async function ensureIdOrWarn() {
-    const tid = detectTornId();
-    if (!tid) {
-      const err = document.getElementById("rt-error");
-      if (err) {
-        err.style.display = "block";
-        err.textContent = "Couldn't detect your Torn ID yet.\nOpen your profile/sidebar then try again.";
-      }
-      return null;
-    }
-    return tid;
-  }
-
-  // ====== draggable position helpers ======
-  const POS_KEY = "wrath_shield_pos_v1";
-  function clamp(val, min, max) { return Math.min(max, Math.max(min, val)); }
-  function loadPos() {
-    const p = GM_getValue(POS_KEY, null);
-    if (p && typeof p === "object" && p.top != null && p.left != null) return p;
-    const left = Math.max(2, window.innerWidth - 48 - SHIELD_RIGHT_DEFAULT);
-    return { top: SHIELD_TOP_DEFAULT, left };
-  }
-  function savePos(top, left) { GM_setValue(POS_KEY, { top, left }); }
 
   // ====== dropdown options ======
   function buildEnemyMemberOptions(state) {
@@ -311,7 +285,6 @@
     const count = document.getElementById("rt-deals-count");
     if (!list || !count) return;
 
-    // keep last state for dropdowns + delete cache handling
     window.__wrath_last_state = state;
 
     const enemySel = document.getElementById("deal-enemy-member");
@@ -515,12 +488,6 @@
       border:1px solid rgba(255,255,255,.12) !important; font-size:12px; white-space:nowrap; box-shadow:0 8px 18px rgba(0,0,0,.30); }
     #wrath-overlay .btn:active { transform: translateY(1px); }
 
-    #wrath-overlay .divider { margin:14px 0; height:1px; background:var(--line) !important; }
-
-    #wrath-overlay .section-title { font-weight:950; letter-spacing:1px; margin-top:10px; margin-bottom:6px;
-      display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;
-      color:var(--gold) !important; text-shadow:var(--glowEmber); }
-
     #wrath-overlay h2 { margin:12px 0 6px; padding-bottom:6px; border-bottom:1px solid rgba(255,255,255,.10) !important;
       font-size:13px; letter-spacing:.7px; text-transform:uppercase; opacity:.95;
       display:flex; justify-content:space-between; align-items:center; gap:10px; }
@@ -540,12 +507,17 @@
       font-size:12px; font-weight:950; text-decoration:none !important; box-shadow:0 10px 18px rgba(0,0,0,.24);
       display:inline-flex; align-items:center; gap:6px; }
     #wrath-overlay .abtn:active{ transform: translateY(1px); }
+
     #wrath-overlay .abtn.attack{ border-color: rgba(255,122,24,.45) !important; }
     #wrath-overlay .abtn.bounty{ border-color: rgba(255,42,42,.40) !important; }
 
-    #wrath-overlay .abtn.yes{ border-color: rgba(0,255,102,.35) !important; box-shadow: 0 0 18px rgba(0,255,102,.10); }
-    #wrath-overlay .abtn.no{ border-color: rgba(255,51,51,.35) !important; box-shadow: 0 0 18px rgba(255,51,51,.10); }
-    #wrath-overlay .abtn.on{ outline:2px solid rgba(255,255,255,.12); filter:brightness(1.08); }
+    /* YES/NO base + highlight */
+    #wrath-overlay .abtn.yes{ border-color: rgba(0,255,102,.22) !important; }
+    #wrath-overlay .abtn.no{  border-color: rgba(255,51,51,.22) !important; }
+
+    /* highlight ONLY when clicked */
+    #wrath-overlay .abtn.yes.on{ border-color: rgba(0,255,102,.55) !important; box-shadow: 0 0 18px rgba(0,255,102,.14); filter:brightness(1.08); }
+    #wrath-overlay .abtn.no.on{  border-color: rgba(255,51,51,.55) !important; box-shadow: 0 0 18px rgba(255,51,51,.14); filter:brightness(1.08); }
 
     #wrath-overlay .dealCard{ padding:10px; margin:6px 0; border-radius:14px; border:1px solid rgba(255,255,255,.08) !important;
       background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02)) !important;
@@ -561,6 +533,8 @@
       width:100%; box-sizing:border-box; padding:10px; border-radius:12px; border:1px solid rgba(255,255,255,.12) !important;
       background: rgba(0,0,0,.25) !important; outline:none; font-size:12px; }
     #wrath-overlay .dealGrid textarea{ grid-column:1 / -1; min-height:70px; resize:vertical; }
+
+    #wrath-overlay .section-empty{ opacity:.85; font-size:12px; padding:8px 2px; }
 
     @media (max-width:520px){
       #wrath-overlay .name{ max-width:52vw; }
@@ -586,7 +560,12 @@
     if (!document.body) return;
     if (document.getElementById("wrath-shield")) return;
 
-    const pos = loadPos();
+    const pos = (function loadPos() {
+      const p = GM_getValue("wrath_shield_pos_v1", null);
+      if (p && typeof p === "object" && p.top != null && p.left != null) return p;
+      const left = Math.max(2, window.innerWidth - 48 - SHIELD_RIGHT_DEFAULT);
+      return { top: SHIELD_TOP_DEFAULT, left };
+    })();
 
     const shield = document.createElement("div");
     shield.id = "wrath-shield";
@@ -691,6 +670,9 @@
       return t ? { x: t.clientX, y: t.clientY } : { x: ev.clientX, y: ev.clientY };
     }
 
+    function clamp(val, min, max) { return Math.min(max, Math.max(min, val)); }
+    function savePos(top, left) { GM_setValue("wrath_shield_pos_v1", { top, left }); }
+
     function onDown(ev) {
       dragging = true; moved = false;
       const p = getPoint(ev);
@@ -738,38 +720,76 @@
 
     document.getElementById("rt-open-app").addEventListener("click", async (e) => {
       e.preventDefault(); e.stopPropagation();
-      cachedId = cachedId || (await ensureIdOrWarn());
+      const tid = await (async function ensureIdOrWarn() {
+        const t = detectTornId();
+        if (!t) {
+          const err = document.getElementById("rt-error");
+          if (err) {
+            err.style.display = "block";
+            err.textContent = "Couldn't detect your Torn ID yet.\nOpen your profile/sidebar then try again.";
+          }
+          return null;
+        }
+        return t;
+      })();
+      cachedId = cachedId || tid;
       openAppPanelWithId(cachedId);
     }, true);
 
-    // ✅ YES/NO availability per member
+    // ✅ YES/NO availability per member (neutral default + instant connected toggle)
     overlay.addEventListener("click", async (e) => {
       const target = e.target;
       if (!(target instanceof HTMLElement)) return;
+
       const btn = target.closest("[data-avail][data-avail-id]");
       if (!btn) return;
 
       e.preventDefault(); e.stopPropagation();
 
       const memberId = btn.getAttribute("data-avail-id");
-      const which = btn.getAttribute("data-avail"); // yes/no
+      const which = btn.getAttribute("data-avail"); // "yes" or "no"
       const available = (which === "yes");
 
       const err = document.getElementById("rt-error");
-      btn.style.pointerEvents = "none";
+      if (err) { err.style.display = "none"; err.textContent = ""; }
+
+      // Connected buttons: highlight clicked one, unhighlight the other
+      const memberRow = btn.closest(".member");
+      const yesBtn = memberRow ? memberRow.querySelector('[data-avail="yes"][data-avail-id]') : null;
+      const noBtn  = memberRow ? memberRow.querySelector('[data-avail="no"][data-avail-id]') : null;
+
+      if (yesBtn && noBtn) {
+        if (available) {
+          yesBtn.classList.add("on");
+          noBtn.classList.remove("on");
+        } else {
+          noBtn.classList.add("on");
+          yesBtn.classList.remove("on");
+        }
+      }
+
+      // disable both while saving
+      const allBtns = memberRow ? memberRow.querySelectorAll("[data-avail][data-avail-id]") : [btn];
+      allBtns.forEach(b => { if (b instanceof HTMLElement) b.style.pointerEvents = "none"; });
+
       const oldText = btn.textContent;
       btn.textContent = available ? "⏳ YES..." : "⏳ NO...";
 
       const res = await postAvailability(memberId, available, "");
       if (!res.ok) {
-        btn.style.pointerEvents = "";
+        // re-enable
+        allBtns.forEach(b => { if (b instanceof HTMLElement) b.style.pointerEvents = ""; });
         btn.textContent = oldText || (available ? "✅ YES" : "❌ NO");
+
         if (err) {
           err.style.display = "block";
           err.textContent =
             "Failed to update availability\n" +
             (typeof res.body === "string" ? res.body : JSON.stringify(res.body, null, 2));
         }
+
+        // refresh so UI matches server truth
+        await refreshState();
         return;
       }
 
@@ -780,7 +800,18 @@
     document.getElementById("deal-submit").addEventListener("click", async (e) => {
       e.preventDefault(); e.stopPropagation();
 
-      cachedId = cachedId || (await ensureIdOrWarn());
+      cachedId = cachedId || (await (async () => {
+        const t = detectTornId();
+        if (!t) {
+          const err = document.getElementById("rt-error");
+          if (err) {
+            err.style.display = "block";
+            err.textContent = "Couldn't detect your Torn ID yet.\nOpen your profile/sidebar then try again.";
+          }
+          return null;
+        }
+        return t;
+      })());
       if (!cachedId) return;
 
       const reporterName = detectPlayerName();
@@ -830,7 +861,7 @@
       await refreshState();
     }, true);
 
-    // 💊 Deal Done delete (✅ FIXED: remove locally + update cached state + then refresh)
+    // 💊 Deal Done delete (reliable)
     overlay.addEventListener("click", async (e) => {
       const target = e.target;
       if (!(target instanceof HTMLElement)) return;
@@ -842,18 +873,16 @@
 
       e.preventDefault(); e.stopPropagation();
 
-      cachedId = cachedId || (await ensureIdOrWarn());
+      cachedId = cachedId || (await (async () => detectTornId())());
       if (!cachedId) return;
 
       const err = document.getElementById("rt-error");
-      err.style.display = "none";
-      err.textContent = "";
+      if (err) { err.style.display = "none"; err.textContent = ""; }
 
-      // Optimistic UI remove immediately
+      // optimistic remove
       const card = btn.closest(".dealCard");
       if (card) card.remove();
 
-      // Update count immediately
       const list = document.getElementById("rt-deals-list");
       const countEl = document.getElementById("rt-deals-count");
       if (list && countEl) {
@@ -862,7 +891,7 @@
         if (remaining === 0) list.innerHTML = `<div class="section-empty">No deals logged yet.</div>`;
       }
 
-      // Also update cached state so a refresh render doesn't re-add it
+      // update cached state so render won't re-add
       try {
         const st = window.__wrath_last_state;
         if (st && Array.isArray(st.med_deals)) {
@@ -870,21 +899,18 @@
         }
       } catch (_) {}
 
-      // Now call server delete
       const res = await deleteMedDeal(dealId, cachedId);
       if (!res.ok) {
-        // If delete failed, show error and force refresh to restore truth
         if (err) {
           err.style.display = "block";
           err.textContent =
-            "Failed to delete deal (it may not be yours / permission denied)\n" +
+            "Failed to delete deal\n" +
             (typeof res.body === "string" ? res.body : JSON.stringify(res.body, null, 2));
         }
         await refreshState();
         return;
       }
 
-      // Final sync
       await refreshState();
     }, true);
 
@@ -901,7 +927,6 @@
     }, 1000);
   }
 
-  // ✅ ensures it builds even if Torn loads slow
   ensureUI();
   let tries = 0;
   const t = setInterval(() => {

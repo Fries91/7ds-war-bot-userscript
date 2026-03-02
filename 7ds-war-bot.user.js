@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         7DS*: Wrath War-Bot 🛡️ (Wrath Theme + Collapsible + Draggable) [SCOPED FIX + MED DEALS + LOCAL YES/NO + CHAIN SITTERS]
 // @namespace    7ds-wrath-warbot
-// @version      7.7.1
-// @description  Wrath-themed shield overlay matching app.py. Uses /state (CSP-proof). Shield draggable + tap to open/close. ✅ YES/NO is LOCAL only (stays checked, NOT tied to server). 🔗 Chain Sitters section shows REAL Opt In/Out (server, self-only). 💊 Med Deals delete removes instantly from screen + updates count, then deletes on server.
+// @version      7.7.2
+// @description  Wrath-themed shield overlay matching app.py. Uses /state (CSP-proof). Shield draggable + tap to open/close. ✅ YES/NO is LOCAL only (stays checked, NOT tied to server). 🔗 Chain Sitters section shows REAL Opt In/Out (server, self-only). 💊 Med Deals delete removes instantly from screen + updates count, then deletes on server (DELETE BODY to avoid 405).
 // @match        https://www.torn.com/*
 // @match        https://torn.com/*
 // @grant        GM_addStyle
@@ -25,6 +25,9 @@
   const SHIELD_TOP_DEFAULT = 110;
   const SHIELD_RIGHT_DEFAULT = 12;
   const REFRESH_MS = 8000;
+
+  // blocks refresh while posting/deleting so UI doesn’t “pop back”
+  let WRATH_BUSY = false;
 
   // ===== local YES/NO storage =====
   const LOCAL_PREFIX = "wrath_local_yesno_v1_"; // + memberId -> "yes"|"no"|""
@@ -121,11 +124,12 @@
     );
   }
 
+  // ✅ DELETE BODY (avoids 405 on /api/med_deals/<id>)
   function deleteMedDeal(dealId, requesterId) {
     return httpJson(
       "DELETE",
-      `${API_DEALS}/${encodeURIComponent(String(dealId))}?token=${encodeURIComponent(AVAIL_TOKEN)}&requester_id=${encodeURIComponent(String(requesterId || ""))}`,
-      null,
+      `${API_DEALS}?token=${encodeURIComponent(AVAIL_TOKEN)}`,
+      { id: String(dealId), requester_id: String(requesterId || "") },
       { "X-Token": AVAIL_TOKEN, "X-Requester-Id": String(requesterId || "") }
     );
   }
@@ -353,16 +357,29 @@
     }
   }
 
+  // Chain sitters derived from state.rows where available exists (server truth)
+  function buildChainSittersFromState(state) {
+    return (state.rows || [])
+      .filter(r => r && r.id && typeof r.available !== "undefined")
+      .map(r => ({
+        id: String(r.id),
+        name: String(r.name || r.id),
+        status: String(r.status || "offline"),
+        available: !!r.available,
+      }))
+      .sort((a,b) => a.name.localeCompare(b.name));
+  }
+
   function renderChainSitters(state) {
     const list = document.getElementById("rt-chain-list");
     const count = document.getElementById("rt-chain-count");
     if (!list || !count) return;
 
-    const cs = (state.chain_sitters || []);
+    const cs = buildChainSittersFromState(state);
     count.textContent = String(cs.length);
 
     if (!cs.length) {
-      list.innerHTML = `<div class="section-empty">No chain sitters configured.</div>`;
+      list.innerHTML = `<div class="section-empty">No chain sitters found in /state.</div>`;
       return;
     }
 
@@ -394,7 +411,7 @@
     list.querySelectorAll('[data-disabled="1"]').forEach(el => {
       el.style.opacity = "0.55";
       el.style.pointerEvents = "none";
-      el.title = "Only the chain sitter can toggle their own opt status.";
+      el.title = "Only you can toggle your own opt status.";
     });
   }
 
@@ -550,6 +567,12 @@
       font-size:13px; letter-spacing:.7px; text-transform:uppercase; opacity:.95;
       display:flex; justify-content:space-between; align-items:center; gap:10px; }
 
+    #wrath-overlay details.collapsible { border:1px solid rgba(255,255,255,.10) !important; border-radius:14px; overflow:hidden; margin:10px 0; }
+    #wrath-overlay details.collapsible > summary { cursor:pointer; user-select:none; padding:10px 12px; display:flex; align-items:center; justify-content:space-between; gap:10px;
+      background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02)) !important; font-weight:950; letter-spacing:.7px; text-transform:uppercase; }
+    #wrath-overlay details.collapsible > summary::-webkit-details-marker { display:none; }
+    #wrath-overlay details.collapsible .body { padding:10px 10px 12px; }
+
     #wrath-overlay .member{ padding:9px 10px; margin:6px 0; border-radius:12px; display:flex; justify-content:space-between; align-items:center; gap:10px; font-size:13px;
       background: linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.02)) !important;
       border:1px solid var(--cardBorder) !important; box-shadow: 0 10px 20px rgba(0,0,0,.22); position:relative; overflow:hidden; }
@@ -617,6 +640,20 @@
     #wrath-overlay .dealGrid textarea{ grid-column:1 / -1; min-height:70px; resize:vertical; }
 
     #wrath-overlay .section-empty{ opacity:.85; font-size:12px; padding:8px 2px; }
+
+    #wrath-overlay .divider{ margin:12px 0; height:1px; background: rgba(255,255,255,.10); opacity:.35; }
+
+    #wrath-overlay .section-title{ display:flex; justify-content:space-between; align-items:baseline; gap:10px; margin:10px 0 6px; font-weight:950; letter-spacing:.8px; text-transform:uppercase; color:var(--gold) !important; text-shadow:var(--glowEmber); }
+    #wrath-overlay .section-title .small{ font-size:12px; font-weight:700; opacity:.9; color:var(--text) !important; text-shadow:none; }
+
+    #wrath-overlay .err{ margin-top:10px; padding:10px; border-radius:12px; background: var(--dangerBg) !important;
+      border:1px solid var(--dangerBorder) !important; font-size:12px; white-space:pre-wrap; }
+
+    #wrath-overlay .warbox{ margin-top:10px; padding:10px; border-radius:14px; border:1px solid rgba(255,255,255,.10) !important;
+      background: linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.02)) !important; font-size:12px; }
+
+    #wrath-overlay .warrow{ display:flex; justify-content:space-between; gap:10px; margin:3px 0; }
+    #wrath-overlay .label{ opacity:.8; }
 
     @media (max-width:520px){
       #wrath-overlay .name{ max-width:52vw; }
@@ -841,7 +878,7 @@
       }
     }, true);
 
-    // 🔗 Chain sitter toggle (REAL server)
+    // 🔗 Chain sitter toggle (REAL server, self-only)
     overlay.addEventListener("click", async (e) => {
       const target = e.target;
       if (!(target instanceof HTMLElement)) return;
@@ -862,7 +899,9 @@
       const old = btn.textContent;
       btn.textContent = "⏳ Saving...";
 
+      WRATH_BUSY = true;
       const res = await postAvailability(tornId, !isOn, me);
+      WRATH_BUSY = false;
 
       btn.style.pointerEvents = "";
       btn.textContent = old || (isOn ? "⬜ OPTED OUT" : "✅ OPTED IN");
@@ -922,7 +961,10 @@
         notes: notes || null,
       };
 
+      WRATH_BUSY = true;
       const res = await postMedDeal(payload);
+      WRATH_BUSY = false;
+
       if (!res.ok) {
         err.style.display = "block";
         err.textContent =
@@ -954,6 +996,16 @@
       const err = document.getElementById("rt-error");
       if (err) { err.style.display = "none"; err.textContent = ""; }
 
+      WRATH_BUSY = true;
+
+      // ✅ remove from cached state first so it can’t re-render
+      try {
+        const st = window.__wrath_last_state;
+        if (st && Array.isArray(st.med_deals)) {
+          st.med_deals = st.med_deals.filter(d => String(d.id) !== String(dealId));
+        }
+      } catch (_) {}
+
       // ✅ INSTANT UI REMOVE
       const card = btn.closest(".dealCard");
       if (card) card.remove();
@@ -969,8 +1021,10 @@
         }
       }
 
-      // ✅ SERVER DELETE
+      // ✅ SERVER DELETE (DELETE BODY)
       const res = await deleteMedDeal(dealId, requesterId);
+      WRATH_BUSY = false;
+
       if (!res.ok) {
         if (err) {
           err.style.display = "block";
@@ -985,8 +1039,9 @@
       await refreshState();
     }, true);
 
-    // auto refresh while open
+    // auto refresh while open (skip while busy)
     setInterval(() => {
+      if (WRATH_BUSY) return;
       if (overlay.style.display === "block") {
         refreshState();
         tickHospitalTimers();
@@ -994,6 +1049,7 @@
     }, REFRESH_MS);
 
     setInterval(() => {
+      if (WRATH_BUSY) return;
       if (overlay.style.display === "block") tickHospitalTimers();
     }, 1000);
   }

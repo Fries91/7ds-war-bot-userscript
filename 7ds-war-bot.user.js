@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         7DS*: Wrath War-Bot 🛡️ (Wrath Theme + Collapsible + Draggable) [SCOPED FIX + MED DEALS + LOCAL YES/NO + CHAIN SITTERS]
 // @namespace    7ds-wrath-warbot
-// @version      7.7.0
-// @description  Wrath-themed shield overlay matching app.py. Uses /state (CSP-proof). Shield draggable + tap to open/close. ✅ YES/NO is LOCAL only (stays checked + NOT tied to server availability). 🔗 Chain Sitters section shows REAL Opt In/Out (server). 💊 Med Deals delete is server-authoritative.
+// @version      7.7.1
+// @description  Wrath-themed shield overlay matching app.py. Uses /state (CSP-proof). Shield draggable + tap to open/close. ✅ YES/NO is LOCAL only (stays checked, NOT tied to server). 🔗 Chain Sitters section shows REAL Opt In/Out (server, self-only). 💊 Med Deals delete removes instantly from screen + updates count, then deletes on server.
 // @match        https://www.torn.com/*
 // @match        https://torn.com/*
 // @grant        GM_addStyle
@@ -202,7 +202,6 @@
     return `https://www.torn.com/bounties.php?p=add&XID=${encodeURIComponent(String(id || ""))}`;
   }
 
-  // ✅ LOCAL YES/NO only (not tied to server availability)
   function memberHTML(r, st, mode) {
     const name = esc(r.name || r.id || "Unknown");
     const id = esc(r.id || "");
@@ -264,22 +263,18 @@
     for (const r of arr) el.insertAdjacentHTML("beforeend", memberHTML(r, st, mode));
   }
 
-  // ====== dropdown options ======
   function buildEnemyMemberOptions(state) {
-    const enemyRows = ((state.enemy || {}).rows || [])
+    return ((state.enemy || {}).rows || [])
       .filter(r => r && r.id && r.name)
       .map(r => ({ id: String(r.id), name: String(r.name) }))
       .sort((a,b) => a.name.localeCompare(b.name));
-    return enemyRows;
   }
 
   function buildMemberOptions(state) {
-    const rows = (state.rows || []);
-    const members = rows
+    return (state.rows || [])
       .filter(r => r && r.id && r.name)
       .map(r => ({ id: String(r.id), name: String(r.name) }))
       .sort((a,b) => a.name.localeCompare(b.name));
-    return members;
   }
 
   function setSelectOptions(selectEl, items, placeholderText) {
@@ -358,7 +353,6 @@
     }
   }
 
-  // 🔗 Chain sitters (REAL server opt-in/out)
   function renderChainSitters(state) {
     const list = document.getElementById("rt-chain-list");
     const count = document.getElementById("rt-chain-count");
@@ -379,8 +373,8 @@
       const mid = String(m.id || "");
       const nm = esc(m.name || mid || "—");
       const opted = !!m.available;
+      const canToggle = !!me && me === mid;
 
-      const canToggle = !!me && me === mid; // only YOU can change YOUR opt
       const btnLabel = opted ? "✅ OPTED IN" : "⬜ OPTED OUT";
       const btnCls = opted ? "on" : "";
 
@@ -397,7 +391,6 @@
       `);
     }
 
-    // visually disable non-self toggles
     list.querySelectorAll('[data-disabled="1"]').forEach(el => {
       el.style.opacity = "0.55";
       el.style.pointerEvents = "none";
@@ -424,8 +417,8 @@
     $("rt-offline").textContent = `🔴 ${c.offline ?? 0}`;
     $("rt-hospital").textContent = `🏥 ${c.hospital ?? 0}`;
 
-    renderDeals(state);
     renderChainSitters(state);
+    renderDeals(state);
 
     const f = state.faction || {};
     $("rt-you-title").textContent = `${(f.tag ? `[${f.tag}] ` : "")}${f.name || ""}`.trim() || "—";
@@ -624,6 +617,12 @@
     #wrath-overlay .dealGrid textarea{ grid-column:1 / -1; min-height:70px; resize:vertical; }
 
     #wrath-overlay .section-empty{ opacity:.85; font-size:12px; padding:8px 2px; }
+
+    @media (max-width:520px){
+      #wrath-overlay .name{ max-width:52vw; }
+      #wrath-overlay .abtn{ padding:6px 9px; }
+      #wrath-overlay .dealGrid{ grid-template-columns:1fr; }
+    }
   `);
 
   async function refreshState() {
@@ -936,7 +935,7 @@
       await refreshState();
     }, true);
 
-    // 💊 Deal Done delete (server authoritative)
+    // 💊 Deal Done delete (✅ instant UI remove + count update, then server delete)
     overlay.addEventListener("click", async (e) => {
       const target = e.target;
       if (!(target instanceof HTMLElement)) return;
@@ -955,21 +954,31 @@
       const err = document.getElementById("rt-error");
       if (err) { err.style.display = "none"; err.textContent = ""; }
 
-      btn.style.pointerEvents = "none";
-      const old = btn.textContent;
-      btn.textContent = "⏳ Removing...";
+      // ✅ INSTANT UI REMOVE
+      const card = btn.closest(".dealCard");
+      if (card) card.remove();
 
+      // ✅ update count + empty text immediately
+      const list = document.getElementById("rt-deals-list");
+      const countEl = document.getElementById("rt-deals-count");
+      if (list && countEl) {
+        const remaining = list.querySelectorAll(".dealCard").length;
+        countEl.textContent = String(remaining);
+        if (remaining === 0) {
+          list.innerHTML = `<div class="section-empty">No deals logged yet.</div>`;
+        }
+      }
+
+      // ✅ SERVER DELETE
       const res = await deleteMedDeal(dealId, requesterId);
-
       if (!res.ok) {
-        btn.style.pointerEvents = "";
-        btn.textContent = old || "🗑 Deal Done";
         if (err) {
           err.style.display = "block";
           err.textContent =
-            "Failed to delete deal\n" +
+            "Failed to delete deal (restoring list)\n" +
             (typeof res.body === "string" ? res.body : JSON.stringify(res.body, null, 2));
         }
+        await refreshState();
         return;
       }
 

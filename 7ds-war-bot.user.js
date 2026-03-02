@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         7DS*: Wrath War-Bot 🛡️ (Wrath Theme + Collapsible + Draggable) [SCOPED FIX + MED DEALS ENEMY MEMBERS + YES/NO AVAIL + BOUNTY ME]
+// @name         7DS*: Wrath War-Bot 🛡️ (Wrath Theme + Collapsible + Draggable) [SCOPED FIX + MED DEALS ENEMY MEMBERS + YES/NO AVAIL + BOUNTY ME] (DELETE FIX)
 // @namespace    7ds-wrath-warbot
-// @version      7.4.0
-// @description  Wrath-themed shield overlay matching app.py. Uses /state (CSP-proof). OPT (token 666). OFFLINE sections collapsible. Shield is DRAGGABLE. Tap shield toggles open/close. YOUR faction has ✅YES/❌NO (availability) + 🎯 Bounty Me. ENEMY has ⚔️ Attack. 💊 Med Deals (Enemy MEMBER dropdown + Our Member dropdown + Notes + Accept + Delete). ✅ CSS scoped to #wrath-overlay/#wrath-shield.
+// @version      7.4.1
+// @description  Wrath-themed shield overlay matching app.py. Uses /state (CSP-proof). OPT (token 666). OFFLINE sections collapsible. Shield is DRAGGABLE. Tap shield toggles open/close. YOUR faction has ✅YES/❌NO (availability) + 🎯 Bounty Me. ENEMY has ⚔️ Attack. 💊 Med Deals (Enemy MEMBER dropdown + Our Member dropdown + Notes + Accept + Deal Done delete). ✅ CSS scoped. ✅ FIX: Deal Done now removes reliably + updates cached state.
 // @match        https://www.torn.com/*
 // @match        https://torn.com/*
 // @grant        GM_addStyle
@@ -92,11 +92,6 @@
     return "";
   }
 
-  // local opt state
-  function availKey(tornId) { return `wrath_avail_${tornId || "unknown"}`; }
-  function setLocalAvail(tornId, val) { GM_setValue(availKey(tornId), !!val); }
-  function getLocalAvail(tornId) { return !!GM_getValue(availKey(tornId), false); }
-
   function postAvailability(tornId, available, name) {
     return httpJson(
       "POST",
@@ -117,6 +112,8 @@
   }
 
   function deleteMedDeal(dealId, requesterId) {
+    // URL style delete supported by your app.py:
+    // DELETE /api/med_deals/<id>?token=...&requester_id=...
     return httpJson(
       "DELETE",
       `${API_DEALS}/${encodeURIComponent(String(dealId))}?token=${encodeURIComponent(AVAIL_TOKEN)}&requester_id=${encodeURIComponent(String(requesterId || ""))}`,
@@ -193,7 +190,6 @@
     return `https://www.torn.com/loader.php?sid=attack&user2ID=${encodeURIComponent(String(id || ""))}`;
   }
 
-  // ✅ bounty URL fixed
   function bountyUrlFor(id) {
     return `https://www.torn.com/bounties.php?p=add&XID=${encodeURIComponent(String(id || ""))}`;
   }
@@ -250,15 +246,6 @@
       return;
     }
     for (const r of arr) el.insertAdjacentHTML("beforeend", memberHTML(r, st, mode));
-  }
-
-  function syncOptUI(tornId) {
-    const btn = document.getElementById("rt-opt");
-    const txt = document.getElementById("rt-opt-text");
-    if (!btn || !txt) return;
-    const on = !!GM_getValue(availKey(tornId), false);
-    btn.classList.toggle("on", on);
-    txt.textContent = on ? "OPTED IN" : "OPT IN";
   }
 
   async function ensureIdOrWarn() {
@@ -324,6 +311,7 @@
     const count = document.getElementById("rt-deals-count");
     if (!list || !count) return;
 
+    // keep last state for dropdowns + delete cache handling
     window.__wrath_last_state = state;
 
     const enemySel = document.getElementById("deal-enemy-member");
@@ -453,8 +441,6 @@
       setList($("rt-them-offline-list"), them.offline, "offline", "No enemy offline right now.", "enemy");
     }
 
-    const tid = detectTornId();
-    if (tid) syncOptUI(tid);
     tickHospitalTimers();
   }
 
@@ -528,7 +514,6 @@
       background: linear-gradient(180deg, rgba(255,255,255,.075), rgba(255,255,255,.04)) !important;
       border:1px solid rgba(255,255,255,.12) !important; font-size:12px; white-space:nowrap; box-shadow:0 8px 18px rgba(0,0,0,.30); }
     #wrath-overlay .btn:active { transform: translateY(1px); }
-    #wrath-overlay .btn.on { border-color: rgba(0,255,102,.35) !important; box-shadow: 0 0 18px rgba(0,255,102,.10); }
 
     #wrath-overlay .divider { margin:14px 0; height:1px; background:var(--line) !important; }
 
@@ -845,7 +830,7 @@
       await refreshState();
     }, true);
 
-    // 💊 Deal Done delete (instant remove + refresh)
+    // 💊 Deal Done delete (✅ FIXED: remove locally + update cached state + then refresh)
     overlay.addEventListener("click", async (e) => {
       const target = e.target;
       if (!(target instanceof HTMLElement)) return;
@@ -860,27 +845,15 @@
       cachedId = cachedId || (await ensureIdOrWarn());
       if (!cachedId) return;
 
-      btn.style.pointerEvents = "none";
-      const oldText = btn.textContent;
-      btn.textContent = "⏳ Removing...";
+      const err = document.getElementById("rt-error");
+      err.style.display = "none";
+      err.textContent = "";
 
-      const res = await deleteMedDeal(dealId, cachedId);
-      if (!res.ok) {
-        btn.style.pointerEvents = "";
-        btn.textContent = oldText || "🗑 Deal Done";
-        const err = document.getElementById("rt-error");
-        if (err) {
-          err.style.display = "block";
-          err.textContent =
-            "Failed to delete deal\n" +
-            (typeof res.body === "string" ? res.body : JSON.stringify(res.body, null, 2));
-        }
-        return;
-      }
-
+      // Optimistic UI remove immediately
       const card = btn.closest(".dealCard");
       if (card) card.remove();
 
+      // Update count immediately
       const list = document.getElementById("rt-deals-list");
       const countEl = document.getElementById("rt-deals-count");
       if (list && countEl) {
@@ -889,6 +862,29 @@
         if (remaining === 0) list.innerHTML = `<div class="section-empty">No deals logged yet.</div>`;
       }
 
+      // Also update cached state so a refresh render doesn't re-add it
+      try {
+        const st = window.__wrath_last_state;
+        if (st && Array.isArray(st.med_deals)) {
+          st.med_deals = st.med_deals.filter(d => String(d.id) !== String(dealId));
+        }
+      } catch (_) {}
+
+      // Now call server delete
+      const res = await deleteMedDeal(dealId, cachedId);
+      if (!res.ok) {
+        // If delete failed, show error and force refresh to restore truth
+        if (err) {
+          err.style.display = "block";
+          err.textContent =
+            "Failed to delete deal (it may not be yours / permission denied)\n" +
+            (typeof res.body === "string" ? res.body : JSON.stringify(res.body, null, 2));
+        }
+        await refreshState();
+        return;
+      }
+
+      // Final sync
       await refreshState();
     }, true);
 

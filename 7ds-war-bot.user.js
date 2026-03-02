@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         7DS*: Wrath War-Bot 🛡️ (Wrath Theme + Collapsible + Draggable) [SCOPED FIX + MED DEALS + LOCAL YES/NO (TOGGLE+CHECK) + CHAIN SITTERS]
+// @name         7DS*: Wrath War-Bot 🛡️ (Wrath Theme + Collapsible + Draggable) [SCOPED FIX + MED DEALS + LOCAL YES/NO + CHAIN SITTERS]
 // @namespace    7ds-wrath-warbot
-// @version      7.8.1
-// @description  Wrath-themed shield overlay matching app.py. Uses /state (CSP-proof). Shield draggable + tap to open/close. ✅ YES/NO is LOCAL only (toggle button + checkbox). 🔗 OPT IN button beside every member (self-only). Chain Sitters box shows ONLY opted-in members. 💊 Med Deals delete removes instantly from screen + updates count, then deletes on server (DELETE BODY to avoid 405).
+// @version      7.7.3
+// @description  Wrath-themed shield overlay matching app.py. Uses /state (CSP-proof). Shield draggable + tap to open/close. ✅ YES/NO is LOCAL only (stays checked, NOT tied to server). 🔗 Chain Sitters section shows REAL Opt In/Out (server, self-only). 💊 Med Deals delete removes instantly from screen + updates count, then deletes on server (DELETE BODY to avoid 405).
 // @match        https://www.torn.com/*
 // @match        https://torn.com/*
 // @grant        GM_addStyle
@@ -30,8 +30,7 @@
   let WRATH_BUSY = false;
 
   // ===== local YES/NO storage =====
-  // values: "yes" | "no" | ""
-  const LOCAL_PREFIX = "wrath_local_yesno_v1_"; // + memberId
+  const LOCAL_PREFIX = "wrath_local_yesno_v1_"; // + memberId -> "yes"|"no"|""
   function getLocalChoice(memberId) {
     return (GM_getValue(LOCAL_PREFIX + String(memberId || ""), "") || "").toString();
   }
@@ -105,7 +104,7 @@
     return "";
   }
 
-  // 🔗 OPT IN/OUT (server) — self-only enforced by server
+  // 🔗 CHAIN SITTER Opt In/Out (server)
   function postAvailability(tornId, available, requesterId) {
     return httpJson(
       "POST",
@@ -207,17 +206,7 @@
     return `https://www.torn.com/bounties.php?p=add&XID=${encodeURIComponent(String(id || ""))}`;
   }
 
-  // ===== YES/NO toggle: one button + one checkbox =====
-  function nextChoice(cur) {
-    // cycles between yes <-> no (default goes to yes)
-    if (cur === "yes") return "no";
-    return "yes";
-  }
-  function labelForChoice(choice) {
-    return choice === "yes" ? "✅ YES" : "❌ NO";
-  }
-
-  function memberHTML(r, st, mode, meId) {
+  function memberHTML(r, st, mode) {
     const name = esc(r.name || r.id || "Unknown");
     const id = esc(r.id || "");
 
@@ -226,19 +215,9 @@
       : esc(fmtMins(r.minutes));
 
     if (mode === "you") {
-      const choice = getLocalChoice(r.id); // "yes"|"no"|"" ("" treated as "no" visually)
-      const isYes = choice === "yes";
-
-      // 🔗 OPT IN button beside each member (self-only)
-      const isMe = !!meId && String(meId) === String(r.id);
-      const opted = !!r.available;
-      const chainLabel = opted ? "✅ CHAIN SITTER" : "🔗 OPT IN";
-      const chainCls = opted ? " on" : "";
-      const chainDisabled = isMe ? "" : 'data-disabled="1" title="Only you can toggle your own opt status."';
-
-      const toggleCls = isYes ? " yes" : " no";
-      const toggleText = labelForChoice(isYes ? "yes" : "no");
-      const chkCls = isYes ? " on" : "";
+      const choice = getLocalChoice(r.id);
+      const yesOn = choice === "yes" ? " on" : "";
+      const noOn  = choice === "no"  ? " on" : "";
 
       return `
         <div class="member ${st}">
@@ -249,19 +228,17 @@
           <div class="actions">
             <div class="right">${right}</div>
 
-            <span class="abtn chain${chainCls}" data-chain-toggle="${esc(r.id)}" ${chainDisabled}>
-              ${chainLabel}
-            </span>
-
-            <span class="abtn ynToggle${toggleCls}" data-yn-toggle="1" data-yn-id="${esc(r.id)}">
-              ${toggleText}
-            </span>
-
-            <span class="ynBox${chkCls}" data-yn-box="1" data-yn-id="${esc(r.id)}" title="Checked = YES, Unchecked = NO">
+            <span class="abtn yes${yesOn}" data-local="yes" data-local-id="${esc(r.id)}">
               <span class="ck" aria-hidden="true"></span>
+              <span class="lbl">YES</span>
             </span>
 
-            <a class="abtn bounty" href="${bountyUrlFor(r.id)}" target="_blank" rel="noopener noreferrer">🎯 Bounty Me</a>
+            <span class="abtn no${noOn}" data-local="no" data-local-id="${esc(r.id)}">
+              <span class="ck" aria-hidden="true"></span>
+              <span class="lbl">NO</span>
+            </span>
+
+            <a class="abtn bounty" href="${bountyUrlFor(r.id)}" target="_blank" rel="noopener noreferrer">🎯</a>
           </div>
         </div>
       `;
@@ -275,19 +252,19 @@
         </div>
         <div class="actions">
           <div class="right">${right}</div>
-          <a class="abtn attack" href="${attackUrlFor(r.id)}" target="_blank" rel="noopener noreferrer">⚔️ Attack</a>
+          <a class="abtn attack" href="${attackUrlFor(r.id)}" target="_blank" rel="noopener noreferrer">⚔️</a>
         </div>
       </div>
     `;
   }
 
-  function setList(el, arr, st, emptyText, mode, meId) {
+  function setList(el, arr, st, emptyText, mode) {
     el.innerHTML = "";
     if (!arr.length) {
       el.innerHTML = `<div class="section-empty">${esc(emptyText)}</div>`;
       return;
     }
-    for (const r of arr) el.insertAdjacentHTML("beforeend", memberHTML(r, st, mode, meId));
+    for (const r of arr) el.insertAdjacentHTML("beforeend", memberHTML(r, st, mode));
   }
 
   function buildEnemyMemberOptions(state) {
@@ -373,19 +350,17 @@
           ${notes ? `<div class="dealRow"><div class="dealLabel">Notes</div><div class="dealStrong">${notes}</div></div>` : ""}
           <div class="dealRow"><div class="dealLabel">Posted</div><div class="dealStrong">${esc(d.created_at || "—")}</div></div>
           <div class="dealActions" style="margin-top:8px; display:flex; justify-content:flex-end;">
-            ${canDel ? `<span class="abtn dealDel" data-deal-del="${esc(d.id)}">🗑 Deal Done</span>` : ``}
+            ${canDel ? `<span class="abtn dealDel" data-deal-del="${esc(d.id)}">🗑</span>` : ``}
           </div>
         </div>
       `);
     }
   }
 
-  // ✅ Chain Sitters = ONLY opted-in members
+  // ✅ Chain sitters from /state.chain_sitters if present; fallback to opted-in rows.available
   function buildChainSittersFromState(state) {
-    const fromServer = Array.isArray(state.chain_sitters) ? state.chain_sitters : null;
-    if (fromServer) {
-      return fromServer
-        .filter(m => m && m.id)
+    if (Array.isArray(state.chain_sitters) && state.chain_sitters.length) {
+      return state.chain_sitters
         .map(m => ({
           id: String(m.id),
           name: String(m.name || m.id),
@@ -396,7 +371,7 @@
     }
 
     return (state.rows || [])
-      .filter(r => r && r.id && r.available === true)
+      .filter(r => r && r.id && !!r.available)
       .map(r => ({
         id: String(r.id),
         name: String(r.name || r.id),
@@ -423,7 +398,6 @@
     for (const m of cs) {
       const mid = String(m.id || "");
       const nm = esc(m.name || mid || "—");
-
       list.insertAdjacentHTML("beforeend", `
         <div class="member ${m.status || "offline"}">
           <div class="left">
@@ -431,7 +405,7 @@
             <div class="sub">ID: ${esc(mid)}</div>
           </div>
           <div class="actions">
-            <span class="pill">✅ OPTED IN</span>
+            <span class="abtn chain on" title="Opted In">✅</span>
           </div>
         </div>
       `);
@@ -479,18 +453,16 @@
       `;
     }
 
-    const meId = detectTornId() || "";
-
     const you = split(state.rows || []);
     $("rt-you-online-count").textContent = String(you.online.length);
     $("rt-you-idle-count").textContent = String(you.idle.length);
     $("rt-you-hosp-count").textContent = String(you.hosp.length);
     $("rt-you-offline-count").textContent = String(you.offline.length);
 
-    setList($("rt-you-online"), you.online, "online", "No one online right now.", "you", meId);
-    setList($("rt-you-idle"), you.idle, "idle", "No one idle right now.", "you", meId);
-    setList($("rt-you-hosp"), you.hosp, "hospital", "No one in hospital right now.", "you", meId);
-    setList($("rt-you-offline-list"), you.offline, "offline", "No one offline right now.", "you", meId);
+    setList($("rt-you-online"), you.online, "online", "No one online right now.", "you");
+    setList($("rt-you-idle"), you.idle, "idle", "No one idle right now.", "you");
+    setList($("rt-you-hosp"), you.hosp, "hospital", "No one in hospital right now.", "you");
+    setList($("rt-you-offline-list"), you.offline, "offline", "No one offline right now.", "you");
 
     const enemy = state.enemy || {};
     const ef = enemy.faction || {};
@@ -508,10 +480,10 @@
       $("rt-them-hosp-count").textContent = String(them.hosp.length);
       $("rt-them-offline-count").textContent = String(them.offline.length);
 
-      setList($("rt-them-online"), them.online, "online", "No enemy online right now.", "enemy", meId);
-      setList($("rt-them-idle"), them.idle, "idle", "No enemy idle right now.", "enemy", meId);
-      setList($("rt-them-hosp"), them.hosp, "hospital", "No enemy in hospital right now.", "enemy", meId);
-      setList($("rt-them-offline-list"), them.offline, "offline", "No enemy offline right now.", "enemy", meId);
+      setList($("rt-them-online"), them.online, "online", "No enemy online right now.", "enemy");
+      setList($("rt-them-idle"), them.idle, "idle", "No enemy idle right now.", "enemy");
+      setList($("rt-them-hosp"), them.hosp, "hospital", "No enemy in hospital right now.", "enemy");
+      setList($("rt-them-offline-list"), them.offline, "offline", "No enemy offline right now.", "enemy");
     }
 
     tickHospitalTimers();
@@ -603,20 +575,23 @@
       border:1px solid var(--cardBorder) !important; box-shadow: 0 10px 20px rgba(0,0,0,.22); position:relative; overflow:hidden; }
 
     #wrath-overlay .left{ display:flex; flex-direction:column; gap:2px; min-width:0; position:relative; z-index:1; }
-    #wrath-overlay .name{ font-weight:900; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:58vw; }
+    /* ✅ more room for names */
+    #wrath-overlay .name{ font-weight:900; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:66vw; }
     #wrath-overlay .sub{ opacity:.82; font-size:11px; }
 
-    #wrath-overlay .actions{ display:flex; align-items:center; gap:8px; justify-content:flex-end; position:relative; z-index:2; white-space:nowrap; }
+    /* ✅ tighter action spacing */
+    #wrath-overlay .actions{ display:flex; align-items:center; gap:6px; justify-content:flex-end; position:relative; z-index:2; white-space:nowrap; }
 
-    #wrath-overlay .abtn{ cursor:pointer; user-select:none; padding:6px 10px; border-radius:12px;
+    /* ✅ SMALLER MEMBER BUTTONS */
+    #wrath-overlay .abtn{ cursor:pointer; user-select:none; padding:5px 8px; border-radius:10px;
       border:1px solid rgba(255,255,255,.14) !important;
       background: linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.03)) !important;
-      font-size:12px; font-weight:950; text-decoration:none !important; box-shadow:0 10px 18px rgba(0,0,0,.24);
-      display:inline-flex; align-items:center; gap:6px; }
+      font-size:11px; font-weight:950; text-decoration:none !important; box-shadow:0 10px 18px rgba(0,0,0,.24);
+      display:inline-flex; align-items:center; gap:5px; line-height:1; }
     #wrath-overlay .abtn:active{ transform: translateY(1px); }
 
     #wrath-overlay .ck{
-      width:14px; height:14px; border-radius:4px;
+      width:12px; height:12px; border-radius:4px;
       border:1px solid rgba(255,255,255,.28) !important;
       background: rgba(0,0,0,.18) !important;
       display:inline-grid; place-items:center;
@@ -625,43 +600,30 @@
     }
     #wrath-overlay .ck:after{
       content:"";
-      width:8px; height:5px;
+      width:7px; height:4px;
       border-left:2px solid transparent;
       border-bottom:2px solid transparent;
       transform: rotate(-45deg);
       opacity:0;
     }
 
-    /* 🔗 chain */
-    #wrath-overlay .abtn.chain{ border-color: rgba(255,210,74,.45) !important; }
-    #wrath-overlay .abtn.chain.on{ border-color: rgba(0,255,102,.55) !important; box-shadow: 0 0 16px rgba(0,255,102,.12); }
-    #wrath-overlay .abtn.chain[data-disabled="1"]{ opacity:.55; pointer-events:none; }
+    #wrath-overlay .abtn.yes{ border-color: rgba(0,255,102,.22) !important; }
+    #wrath-overlay .abtn.no{  border-color: rgba(255,51,51,.22) !important; }
 
-    /* ✅ NEW: YES/NO toggle button */
-    #wrath-overlay .abtn.ynToggle{ border-color: rgba(255,255,255,.14) !important; }
-    #wrath-overlay .abtn.ynToggle.yes{ border-color: rgba(0,255,102,.45) !important; box-shadow: 0 0 16px rgba(0,255,102,.10); }
-    #wrath-overlay .abtn.ynToggle.no{  border-color: rgba(255,51,51,.45) !important; box-shadow: 0 0 16px rgba(255,51,51,.08); }
+    #wrath-overlay .abtn.yes.on{ border-color: rgba(0,255,102,.55) !important; box-shadow: 0 0 18px rgba(0,255,102,.14); filter:brightness(1.08); }
+    #wrath-overlay .abtn.no.on{  border-color: rgba(255,51,51,.55) !important; box-shadow: 0 0 18px rgba(255,51,51,.14); filter:brightness(1.08); }
 
-    /* ✅ NEW: checkbox beside toggle */
-    #wrath-overlay .ynBox{
-      cursor:pointer; user-select:none;
-      padding:6px 8px;
-      border-radius:12px;
-      border:1px solid rgba(255,255,255,.14) !important;
-      background: linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.03)) !important;
-      box-shadow:0 10px 18px rgba(0,0,0,.24);
-      display:inline-flex; align-items:center;
-    }
-    #wrath-overlay .ynBox.on{
-      border-color: rgba(0,255,102,.55) !important;
-      box-shadow: 0 0 16px rgba(0,255,102,.12);
-      filter: brightness(1.08);
-    }
-    #wrath-overlay .ynBox.on .ck{ border-color: rgba(0,255,102,.55) !important; box-shadow: 0 0 14px rgba(0,255,102,.12); }
-    #wrath-overlay .ynBox.on .ck:after{ border-left-color: rgba(0,255,102,.95) !important; border-bottom-color: rgba(0,255,102,.95) !important; opacity:1; }
+    #wrath-overlay .abtn.yes.on .ck{ border-color: rgba(0,255,102,.55) !important; box-shadow: 0 0 14px rgba(0,255,102,.12); }
+    #wrath-overlay .abtn.yes.on .ck:after{ border-left-color: rgba(0,255,102,.95) !important; border-bottom-color: rgba(0,255,102,.95) !important; opacity:1; }
+
+    #wrath-overlay .abtn.no.on .ck{ border-color: rgba(255,51,51,.55) !important; box-shadow: 0 0 14px rgba(255,51,51,.12); }
+    #wrath-overlay .abtn.no.on .ck:after{ border-left-color: rgba(255,51,51,.95) !important; border-bottom-color: rgba(255,51,51,.95) !important; opacity:1; }
 
     #wrath-overlay .abtn.attack{ border-color: rgba(255,122,24,.45) !important; }
     #wrath-overlay .abtn.bounty{ border-color: rgba(255,42,42,.40) !important; }
+
+    #wrath-overlay .abtn.chain{ border-color: rgba(255,210,74,.45) !important; }
+    #wrath-overlay .abtn.chain.on{ border-color: rgba(0,255,102,.55) !important; box-shadow: 0 0 16px rgba(0,255,102,.12); }
 
     #wrath-overlay .dealCard{ padding:10px; margin:6px 0; border-radius:14px; border:1px solid rgba(255,255,255,.08) !important;
       background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02)) !important;
@@ -695,9 +657,10 @@
     #wrath-overlay .label{ opacity:.8; }
 
     @media (max-width:520px){
-      #wrath-overlay .name{ max-width:52vw; }
-      #wrath-overlay .abtn{ padding:6px 9px; }
+      #wrath-overlay .name{ max-width:64vw; }
+      #wrath-overlay .abtn{ padding:5px 7px; font-size:10.5px; }
       #wrath-overlay .dealGrid{ grid-template-columns:1fr; }
+      #wrath-overlay .actions{ gap:5px; }
     }
   `);
 
@@ -757,7 +720,7 @@
       <details class="collapsible" id="rt-chain" open>
         <summary><span>🔗 CHAIN SITTERS (OPTED IN)</span><span class="pill" id="rt-chain-count">0</span></summary>
         <div class="body">
-          <div class="section-empty" style="margin-bottom:6px;">Use the 🔗 OPT IN button beside your own name to join/leave this list.</div>
+          <div class="section-empty" style="margin-bottom:6px;">Shows opted-in members.</div>
           <div id="rt-chain-list"></div>
         </div>
       </details>
@@ -774,7 +737,7 @@
               <textarea id="deal-notes" placeholder="Notes (optional) — terms, delivery, etc."></textarea>
             </div>
             <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:10px;">
-              <span class="abtn" id="deal-submit">✅ Accept / Post Deal</span>
+              <span class="abtn" id="deal-submit">✅</span>
             </div>
           </div>
         </div>
@@ -887,86 +850,34 @@
       openAppPanelWithId(tid);
     }, true);
 
-    // ✅ LOCAL YES/NO: one toggle button + one checkbox (checked = YES, unchecked = NO)
-    function applyYesNoUI(rowEl, memberId, choice) {
-      const toggleBtn = rowEl.querySelector(`[data-yn-toggle="1"][data-yn-id="${CSS.escape(String(memberId))}"]`);
-      const boxBtn = rowEl.querySelector(`[data-yn-box="1"][data-yn-id="${CSS.escape(String(memberId))}"]`);
-      const isYes = choice === "yes";
-
-      if (toggleBtn) {
-        toggleBtn.classList.toggle("yes", isYes);
-        toggleBtn.classList.toggle("no", !isYes);
-        toggleBtn.textContent = labelForChoice(isYes ? "yes" : "no");
-      }
-      if (boxBtn) {
-        boxBtn.classList.toggle("on", isYes);
-      }
-    }
-
+    // ✅ LOCAL YES/NO (stays checked, NOT connected to server)
     overlay.addEventListener("click", async (e) => {
       const target = e.target;
       if (!(target instanceof HTMLElement)) return;
 
-      const toggle = target.closest('[data-yn-toggle="1"][data-yn-id]');
-      const box = target.closest('[data-yn-box="1"][data-yn-id]');
-      if (!toggle && !box) return;
-
-      e.preventDefault(); e.stopPropagation();
-
-      const el = toggle || box;
-      const memberId = el.getAttribute("data-yn-id");
-      if (!memberId) return;
-
-      const row = el.closest(".member");
-      if (!row) return;
-
-      const current = getLocalChoice(memberId);
-      // clicking either control flips yes<->no (default => yes)
-      const next = nextChoice(current);
-      setLocalChoice(memberId, next);
-      applyYesNoUI(row, memberId, next);
-    }, true);
-
-    // 🔗 OPT IN toggle (REAL server, self-only)
-    overlay.addEventListener("click", async (e) => {
-      const target = e.target;
-      if (!(target instanceof HTMLElement)) return;
-
-      const btn = target.closest("[data-chain-toggle]");
+      const btn = target.closest("[data-local][data-local-id]");
       if (!btn) return;
 
       e.preventDefault(); e.stopPropagation();
 
-      const me = detectTornId();
-      if (!me) return;
+      const memberId = btn.getAttribute("data-local-id");
+      const which = btn.getAttribute("data-local"); // "yes" or "no"
 
-      const tornId = btn.getAttribute("data-chain-toggle");
-      if (!tornId || String(tornId) !== String(me)) return;
+      const row = btn.closest(".member");
+      if (!row) return;
 
-      const isOn = btn.classList.contains("on");
-      btn.style.pointerEvents = "none";
-      const old = btn.textContent;
-      btn.textContent = "⏳ Saving...";
+      const yesBtn = row.querySelector('[data-local="yes"][data-local-id]');
+      const noBtn  = row.querySelector('[data-local="no"][data-local-id]');
 
-      WRATH_BUSY = true;
-      const res = await postAvailability(tornId, !isOn, me);
-      WRATH_BUSY = false;
-
-      btn.style.pointerEvents = "";
-      btn.textContent = old || (isOn ? "🔗 OPT IN" : "✅ CHAIN SITTER");
-
-      if (!res.ok) {
-        const err = document.getElementById("rt-error");
-        if (err) {
-          err.style.display = "block";
-          err.textContent =
-            "Failed to update opt status\n" +
-            (typeof res.body === "string" ? res.body : JSON.stringify(res.body, null, 2));
-        }
-        return;
+      if (which === "yes") {
+        setLocalChoice(memberId, "yes");
+        if (yesBtn) yesBtn.classList.add("on");
+        if (noBtn)  noBtn.classList.remove("on");
+      } else {
+        setLocalChoice(memberId, "no");
+        if (noBtn)  noBtn.classList.add("on");
+        if (yesBtn) yesBtn.classList.remove("on");
       }
-
-      await refreshState();
     }, true);
 
     // 💊 Post deal

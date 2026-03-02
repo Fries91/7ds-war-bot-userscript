@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         7DS*: Wrath War-Bot 🛡️ (Wrath Theme + Collapsible + Draggable) [SCOPED FIX + MED DEALS + LOCAL YES/NO + CHAIN SITTERS]
+// @name         7DS*: Wrath War-Bot 🛡️ (Wrath Theme + Collapsible + Draggable) [OPT BESIDE NAMES + LOCAL YES/NO + MED DEALS]
 // @namespace    7ds-wrath-warbot
-// @version      7.7.3
-// @description  Wrath-themed shield overlay matching app.py. Uses /state (CSP-proof). Shield draggable + tap to open/close. ✅ YES/NO is LOCAL only (stays checked, NOT tied to server). 🔗 Chain Sitters section shows REAL Opt In/Out (server, self-only). 💊 Med Deals delete removes instantly from screen + updates count, then deletes on server (DELETE BODY to avoid 405).
+// @version      7.7.5
+// @description  Wrath-themed shield overlay matching app.py. Uses /state (CSP-proof). Shield draggable + tap to open/close. ✅ YES/NO local only. 🔗 OPT button beside each member (self-only). Chain Sitters box shows opted-in (available=true). 💊 Med Deals delete is instant UI + server delete.
 // @match        https://www.torn.com/*
 // @match        https://torn.com/*
 // @grant        GM_addStyle
@@ -26,7 +26,6 @@
   const SHIELD_RIGHT_DEFAULT = 12;
   const REFRESH_MS = 8000;
 
-  // blocks refresh while posting/deleting so UI doesn’t “pop back”
   let WRATH_BUSY = false;
 
   // ===== local YES/NO storage =====
@@ -104,7 +103,7 @@
     return "";
   }
 
-  // 🔗 CHAIN SITTER Opt In/Out (server)
+  // 🔗 OPT IN/OUT (server)
   function postAvailability(tornId, available, requesterId) {
     return httpJson(
       "POST",
@@ -124,7 +123,7 @@
     );
   }
 
-  // ✅ DELETE BODY (avoids 405 on /api/med_deals/<id>)
+  // ✅ DELETE BODY (your server supports /api/med_deals DELETE with body)
   function deleteMedDeal(dealId, requesterId) {
     return httpJson(
       "DELETE",
@@ -206,6 +205,7 @@
     return `https://www.torn.com/bounties.php?p=add&XID=${encodeURIComponent(String(id || ""))}`;
   }
 
+  // ✅ member row HTML (includes OPT beside name list)
   function memberHTML(r, st, mode) {
     const name = esc(r.name || r.id || "Unknown");
     const id = esc(r.id || "");
@@ -219,6 +219,13 @@
       const yesOn = choice === "yes" ? " on" : "";
       const noOn  = choice === "no"  ? " on" : "";
 
+      const me = detectTornId() || "";
+      const canOpt = !!me && String(me) === String(r.id);
+      const opted = !!r.available;
+
+      const optCls = opted ? "on" : "";
+      const optTxt = opted ? "OPT IN" : "OPT OUT";
+
       return `
         <div class="member ${st}">
           <div class="left">
@@ -228,22 +235,28 @@
           <div class="actions">
             <div class="right">${right}</div>
 
-            <span class="abtn yes${yesOn}" data-local="yes" data-local-id="${esc(r.id)}">
-              <span class="ck" aria-hidden="true"></span>
-              <span class="lbl">YES</span>
+            <span class="abtn chain ${optCls}"
+                  data-opt-toggle="${esc(r.id)}"
+                  ${canOpt ? "" : 'data-disabled="1"'}
+                  title="${canOpt ? "Toggle your opt status" : "Only you can toggle your own opt status."}">
+              ${optTxt}
             </span>
 
-            <span class="abtn no${noOn}" data-local="no" data-local-id="${esc(r.id)}">
-              <span class="ck" aria-hidden="true"></span>
-              <span class="lbl">NO</span>
+            <span class="abtn yes${yesOn}" data-local="yes" data-local-id="${esc(r.id)}" title="Available for war (local)">
+              <span class="ck" aria-hidden="true"></span><span class="lbl">YES</span>
             </span>
 
-            <a class="abtn bounty" href="${bountyUrlFor(r.id)}" target="_blank" rel="noopener noreferrer">🎯</a>
+            <span class="abtn no${noOn}" data-local="no" data-local-id="${esc(r.id)}" title="Not available (local)">
+              <span class="ck" aria-hidden="true"></span><span class="lbl">NO</span>
+            </span>
+
+            <a class="abtn bounty" href="${bountyUrlFor(r.id)}" target="_blank" rel="noopener noreferrer" title="Bounty Me">🎯</a>
           </div>
         </div>
       `;
     }
 
+    // enemy
     return `
       <div class="member ${st}">
         <div class="left">
@@ -252,7 +265,7 @@
         </div>
         <div class="actions">
           <div class="right">${right}</div>
-          <a class="abtn attack" href="${attackUrlFor(r.id)}" target="_blank" rel="noopener noreferrer">⚔️</a>
+          <a class="abtn attack" href="${attackUrlFor(r.id)}" target="_blank" rel="noopener noreferrer" title="Attack">⚔️</a>
         </div>
       </div>
     `;
@@ -265,6 +278,12 @@
       return;
     }
     for (const r of arr) el.insertAdjacentHTML("beforeend", memberHTML(r, st, mode));
+
+    // disable non-self OPT buttons
+    el.querySelectorAll('[data-disabled="1"]').forEach(btn => {
+      btn.style.opacity = "0.55";
+      btn.style.pointerEvents = "none";
+    });
   }
 
   function buildEnemyMemberOptions(state) {
@@ -350,35 +369,24 @@
           ${notes ? `<div class="dealRow"><div class="dealLabel">Notes</div><div class="dealStrong">${notes}</div></div>` : ""}
           <div class="dealRow"><div class="dealLabel">Posted</div><div class="dealStrong">${esc(d.created_at || "—")}</div></div>
           <div class="dealActions" style="margin-top:8px; display:flex; justify-content:flex-end;">
-            ${canDel ? `<span class="abtn dealDel" data-deal-del="${esc(d.id)}">🗑</span>` : ``}
+            ${canDel ? `<span class="abtn dealDel" data-deal-del="${esc(d.id)}" title="Deal Done">🗑</span>` : ``}
           </div>
         </div>
       `);
     }
   }
 
-  // ✅ Chain sitters from /state.chain_sitters if present; fallback to opted-in rows.available
-  function buildChainSittersFromState(state) {
-    if (Array.isArray(state.chain_sitters) && state.chain_sitters.length) {
-      return state.chain_sitters
-        .map(m => ({
-          id: String(m.id),
-          name: String(m.name || m.id),
-          status: String(m.status || "offline"),
-          available: true
-        }))
-        .sort((a,b) => a.name.localeCompare(b.name));
-    }
-
+  // ✅ Chain Sitters box shows ONLY opted-in (available=true)
+  function buildOptedInFromState(state) {
     return (state.rows || [])
       .filter(r => r && r.id && !!r.available)
       .map(r => ({
         id: String(r.id),
         name: String(r.name || r.id),
         status: String(r.status || "offline"),
-        available: true,
+        minutes: typeof r.minutes === "number" ? r.minutes : 999999,
       }))
-      .sort((a,b) => a.name.localeCompare(b.name));
+      .sort((a,b) => (a.minutes - b.minutes) || a.name.localeCompare(b.name));
   }
 
   function renderChainSitters(state) {
@@ -386,7 +394,7 @@
     const count = document.getElementById("rt-chain-count");
     if (!list || !count) return;
 
-    const cs = buildChainSittersFromState(state);
+    const cs = buildOptedInFromState(state);
     count.textContent = String(cs.length);
 
     if (!cs.length) {
@@ -489,7 +497,7 @@
     tickHospitalTimers();
   }
 
-  // ✅ SCOPED CSS ONLY
+  // ✅ SCOPED CSS ONLY + buttons smaller so names show more
   GM_addStyle(`
     #wrath-overlay, #wrath-overlay * { pointer-events: auto !important; }
 
@@ -497,16 +505,8 @@
       --bg0:#070607;
       --bg1:#0d0a0c;
       --text:#f4f2f3;
-      --muted:rgba(244,242,243,.74);
-      --ember:#ff7a18;
-      --blood:#ff2a2a;
       --gold:#ffd24a;
-      --violet:#b06cff;
-      --line:rgba(255,255,255,.10);
       --cardBorder:rgba(255,255,255,.07);
-      --green:#00ff66;
-      --yellow:#ffd000;
-      --red:#ff3333;
       --dangerBg:rgba(255,80,80,.12);
       --dangerBorder:rgba(255,80,80,.25);
       --glowRed: 0 0 14px rgba(255,42,42,.25), 0 0 26px rgba(255,42,42,.14);
@@ -544,8 +544,7 @@
 
     #wrath-overlay .sigil{ height:10px; border-radius:999px;
       background: linear-gradient(90deg, transparent, rgba(255,42,42,.55), rgba(255,122,24,.45), transparent) !important;
-      opacity:.9; margin-bottom:10px; position:relative; overflow:hidden;
-      border:1px solid rgba(255,255,255,.06) !important; box-shadow: var(--glowRed); }
+      opacity:.9; margin-bottom:10px; border:1px solid rgba(255,255,255,.06) !important; box-shadow: var(--glowRed); }
 
     #wrath-overlay .topbar { display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:10px; }
     #wrath-overlay .title { font-weight:950; letter-spacing:1.1px; font-size:16px; color:var(--gold) !important; text-transform:uppercase; text-shadow:var(--glowEmber); }
@@ -572,17 +571,15 @@
 
     #wrath-overlay .member{ padding:9px 10px; margin:6px 0; border-radius:12px; display:flex; justify-content:space-between; align-items:center; gap:10px; font-size:13px;
       background: linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.02)) !important;
-      border:1px solid var(--cardBorder) !important; box-shadow: 0 10px 20px rgba(0,0,0,.22); position:relative; overflow:hidden; }
+      border:1px solid var(--cardBorder) !important; box-shadow: 0 10px 20px rgba(0,0,0,.22); }
 
-    #wrath-overlay .left{ display:flex; flex-direction:column; gap:2px; min-width:0; position:relative; z-index:1; }
-    /* ✅ more room for names */
-    #wrath-overlay .name{ font-weight:900; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:66vw; }
+    #wrath-overlay .left{ display:flex; flex-direction:column; gap:2px; min-width:0; }
+    #wrath-overlay .name{ font-weight:900; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:70vw; }
     #wrath-overlay .sub{ opacity:.82; font-size:11px; }
 
-    /* ✅ tighter action spacing */
-    #wrath-overlay .actions{ display:flex; align-items:center; gap:6px; justify-content:flex-end; position:relative; z-index:2; white-space:nowrap; }
+    #wrath-overlay .actions{ display:flex; align-items:center; gap:6px; justify-content:flex-end; white-space:nowrap; }
 
-    /* ✅ SMALLER MEMBER BUTTONS */
+    /* smaller buttons */
     #wrath-overlay .abtn{ cursor:pointer; user-select:none; padding:5px 8px; border-radius:10px;
       border:1px solid rgba(255,255,255,.14) !important;
       background: linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.03)) !important;
@@ -641,7 +638,6 @@
     #wrath-overlay .dealGrid textarea{ grid-column:1 / -1; min-height:70px; resize:vertical; }
 
     #wrath-overlay .section-empty{ opacity:.85; font-size:12px; padding:8px 2px; }
-
     #wrath-overlay .divider{ margin:12px 0; height:1px; background: rgba(255,255,255,.10); opacity:.35; }
 
     #wrath-overlay .section-title{ display:flex; justify-content:space-between; align-items:baseline; gap:10px; margin:10px 0 6px; font-weight:950; letter-spacing:.8px; text-transform:uppercase; color:var(--gold) !important; text-shadow:var(--glowEmber); }
@@ -657,10 +653,10 @@
     #wrath-overlay .label{ opacity:.8; }
 
     @media (max-width:520px){
-      #wrath-overlay .name{ max-width:64vw; }
+      #wrath-overlay .name{ max-width:66vw; }
       #wrath-overlay .abtn{ padding:5px 7px; font-size:10.5px; }
-      #wrath-overlay .dealGrid{ grid-template-columns:1fr; }
       #wrath-overlay .actions{ gap:5px; }
+      #wrath-overlay .dealGrid{ grid-template-columns:1fr; }
     }
   `);
 
@@ -720,7 +716,7 @@
       <details class="collapsible" id="rt-chain" open>
         <summary><span>🔗 CHAIN SITTERS (OPTED IN)</span><span class="pill" id="rt-chain-count">0</span></summary>
         <div class="body">
-          <div class="section-empty" style="margin-bottom:6px;">Shows opted-in members.</div>
+          <div class="section-empty" style="margin-bottom:6px;">Shows everyone who is opted-in (available=true).</div>
           <div id="rt-chain-list"></div>
         </div>
       </details>
@@ -737,7 +733,7 @@
               <textarea id="deal-notes" placeholder="Notes (optional) — terms, delivery, etc."></textarea>
             </div>
             <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:10px;">
-              <span class="abtn" id="deal-submit">✅</span>
+              <span class="abtn" id="deal-submit">✅ Post Deal</span>
             </div>
           </div>
         </div>
@@ -850,7 +846,7 @@
       openAppPanelWithId(tid);
     }, true);
 
-    // ✅ LOCAL YES/NO (stays checked, NOT connected to server)
+    // ✅ LOCAL YES/NO
     overlay.addEventListener("click", async (e) => {
       const target = e.target;
       if (!(target instanceof HTMLElement)) return;
@@ -878,6 +874,50 @@
         if (noBtn)  noBtn.classList.add("on");
         if (yesBtn) yesBtn.classList.remove("on");
       }
+    }, true);
+
+    // 🔗 OPT toggle beside member name (self-only)
+    overlay.addEventListener("click", async (e) => {
+      const target = e.target;
+      if (!(target instanceof HTMLElement)) return;
+
+      const btn = target.closest("[data-opt-toggle]");
+      if (!btn) return;
+
+      e.preventDefault(); e.stopPropagation();
+
+      const me = detectTornId();
+      if (!me) return;
+
+      const tornId = btn.getAttribute("data-opt-toggle");
+      if (!tornId) return;
+
+      if (String(tornId) !== String(me)) return; // self-only
+
+      const isOn = btn.classList.contains("on");
+      btn.style.pointerEvents = "none";
+      const oldText = btn.textContent;
+      btn.textContent = "⏳";
+
+      WRATH_BUSY = true;
+      const res = await postAvailability(tornId, !isOn, me);
+      WRATH_BUSY = false;
+
+      btn.style.pointerEvents = "";
+      btn.textContent = oldText || (isOn ? "OPT OUT" : "OPT IN");
+
+      if (!res.ok) {
+        const err = document.getElementById("rt-error");
+        if (err) {
+          err.style.display = "block";
+          err.textContent =
+            "Failed to update OPT\n" +
+            (typeof res.body === "string" ? res.body : JSON.stringify(res.body, null, 2));
+        }
+        return;
+      }
+
+      await refreshState();
     }, true);
 
     // 💊 Post deal
@@ -937,7 +977,7 @@
       await refreshState();
     }, true);
 
-    // 💊 Deal Done delete (✅ instant UI remove + count update, then server delete)
+    // 💊 Deal Done delete
     overlay.addEventListener("click", async (e) => {
       const target = e.target;
       if (!(target instanceof HTMLElement)) return;
@@ -958,7 +998,7 @@
 
       WRATH_BUSY = true;
 
-      // ✅ remove from cached state first so it can’t re-render
+      // instant remove from cached
       try {
         const st = window.__wrath_last_state;
         if (st && Array.isArray(st.med_deals)) {
@@ -966,22 +1006,18 @@
         }
       } catch (_) {}
 
-      // ✅ INSTANT UI REMOVE
+      // instant UI remove
       const card = btn.closest(".dealCard");
       if (card) card.remove();
 
-      // ✅ update count + empty text immediately
       const list = document.getElementById("rt-deals-list");
       const countEl = document.getElementById("rt-deals-count");
       if (list && countEl) {
         const remaining = list.querySelectorAll(".dealCard").length;
         countEl.textContent = String(remaining);
-        if (remaining === 0) {
-          list.innerHTML = `<div class="section-empty">No deals logged yet.</div>`;
-        }
+        if (remaining === 0) list.innerHTML = `<div class="section-empty">No deals logged yet.</div>`;
       }
 
-      // ✅ SERVER DELETE (DELETE BODY)
       const res = await deleteMedDeal(dealId, requesterId);
       WRATH_BUSY = false;
 
@@ -999,7 +1035,7 @@
       await refreshState();
     }, true);
 
-    // auto refresh while open (skip while busy)
+    // auto refresh while open
     setInterval(() => {
       if (WRATH_BUSY) return;
       if (overlay.style.display === "block") {

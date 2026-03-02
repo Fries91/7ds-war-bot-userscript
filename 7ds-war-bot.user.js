@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         7DS*: Wrath War-Bot 🛡️ (Wrath Theme + Collapsible + Draggable) [SCOPED FIX + MED DEALS ENEMY MEMBERS]
+// @name         7DS*: Wrath War-Bot 🛡️ (Wrath Theme + Collapsible + Draggable) [SCOPED FIX + MED DEALS ENEMY MEMBERS + YES/NO AVAIL + BOUNTY ME]
 // @namespace    7ds-wrath-warbot
-// @version      7.3.3
-// @description  Wrath-themed shield overlay matching app.py. Uses /state (CSP-proof). OPT (token 666). OFFLINE sections collapsible. Shield is DRAGGABLE. Tap shield toggles open/close. YOUR faction has 🎯 Bounty buttons. ENEMY has ⚔️ Attack buttons. 💊 Med Deals (Enemy MEMBER dropdown + Our Member dropdown + Notes + Accept + Delete). ✅ CSS scoped to #wrath-overlay/#wrath-shield so Torn Home Screen is NOT affected.
+// @version      7.4.0
+// @description  Wrath-themed shield overlay matching app.py. Uses /state (CSP-proof). OPT (token 666). OFFLINE sections collapsible. Shield is DRAGGABLE. Tap shield toggles open/close. YOUR faction has ✅YES/❌NO (availability) + 🎯 Bounty Me. ENEMY has ⚔️ Attack. 💊 Med Deals (Enemy MEMBER dropdown + Our Member dropdown + Notes + Accept + Delete). ✅ CSS scoped to #wrath-overlay/#wrath-shield.
 // @match        https://www.torn.com/*
 // @match        https://torn.com/*
 // @grant        GM_addStyle
@@ -193,7 +193,7 @@
     return `https://www.torn.com/loader.php?sid=attack&user2ID=${encodeURIComponent(String(id || ""))}`;
   }
 
-  // ✅ FIXED bounty URL
+  // ✅ bounty URL fixed
   function bountyUrlFor(id) {
     return `https://www.torn.com/bounties.php?p=add&XID=${encodeURIComponent(String(id || ""))}`;
   }
@@ -208,6 +208,9 @@
       : esc(fmtMins(r.minutes));
 
     if (mode === "you") {
+      const yesOn = r.available ? " on" : "";
+      const noOn  = !r.available ? " on" : "";
+
       return `
         <div class="member ${st}">
           <div class="left">
@@ -216,7 +219,11 @@
           </div>
           <div class="actions">
             <div class="right">${right}</div>
-            <a class="abtn bounty" href="${bountyUrlFor(r.id)}" target="_blank" rel="noopener noreferrer">🎯 Bounty</a>
+
+            <span class="abtn yes${yesOn}" data-avail="yes" data-avail-id="${esc(r.id)}">✅ YES</span>
+            <span class="abtn no${noOn}" data-avail="no" data-avail-id="${esc(r.id)}">❌ NO</span>
+
+            <a class="abtn bounty" href="${bountyUrlFor(r.id)}" target="_blank" rel="noopener noreferrer">🎯 Bounty Me</a>
           </div>
         </div>
       `;
@@ -267,7 +274,7 @@
     return tid;
   }
 
-  // ====== ✅ FIX: draggable position helpers (THIS BRINGS SHIELD BACK) ======
+  // ====== draggable position helpers ======
   const POS_KEY = "wrath_shield_pos_v1";
   function clamp(val, min, max) { return Math.min(max, Math.max(min, val)); }
   function loadPos() {
@@ -451,7 +458,7 @@
     tickHospitalTimers();
   }
 
-  // ✅ SCOPED CSS ONLY
+  // ✅ SCOPED CSS ONLY (+ yes/no styling)
   GM_addStyle(`
     #wrath-overlay, #wrath-overlay * { pointer-events: auto !important; }
 
@@ -508,14 +515,11 @@
       background: linear-gradient(90deg, transparent, rgba(255,42,42,.55), rgba(255,122,24,.45), transparent) !important;
       opacity:.9; margin-bottom:10px; position:relative; overflow:hidden;
       border:1px solid rgba(255,255,255,.06) !important; box-shadow: var(--glowRed); }
-    #wrath-overlay .sigil:after{ content:""; position:absolute; top:-40px; left:-60%; width:40%; height:120px;
-      background: linear-gradient(90deg, transparent, rgba(255,255,255,.10), transparent);
-      transform: rotate(18deg); animation: wrath_sweep 5.8s linear infinite; opacity:.5; }
-    @keyframes wrath_sweep{ 0%{ left:-60%; } 100%{ left:140%; } }
 
     #wrath-overlay .topbar { display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:10px; }
     #wrath-overlay .title { font-weight:950; letter-spacing:1.1px; font-size:16px; color:var(--gold) !important; text-transform:uppercase; text-shadow:var(--glowEmber); }
     #wrath-overlay .meta { font-size:12px; opacity:.96; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+
     #wrath-overlay .pill { display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:999px;
       background: linear-gradient(180deg, rgba(255,255,255,.075), rgba(255,255,255,.04)) !important;
       border:1px solid rgba(255,255,255,.10) !important; font-size:12px; white-space:nowrap; }
@@ -531,7 +535,6 @@
     #wrath-overlay .section-title { font-weight:950; letter-spacing:1px; margin-top:10px; margin-bottom:6px;
       display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap;
       color:var(--gold) !important; text-shadow:var(--glowEmber); }
-    #wrath-overlay .section-title .small { font-size:12px; opacity:.9; font-weight:700; text-shadow:none; }
 
     #wrath-overlay h2 { margin:12px 0 6px; padding-bottom:6px; border-bottom:1px solid rgba(255,255,255,.10) !important;
       font-size:13px; letter-spacing:.7px; text-transform:uppercase; opacity:.95;
@@ -540,42 +543,10 @@
     #wrath-overlay .member{ padding:9px 10px; margin:6px 0; border-radius:12px; display:flex; justify-content:space-between; align-items:center; gap:10px; font-size:13px;
       background: linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.02)) !important;
       border:1px solid var(--cardBorder) !important; box-shadow: 0 10px 20px rgba(0,0,0,.22); position:relative; overflow:hidden; }
-    #wrath-overlay .member:after{ content:""; position:absolute; inset:-1px;
-      background: radial-gradient(260px 60px at 10% 0%, rgba(255,122,24,.10), transparent 65%),
-                  radial-gradient(220px 55px at 90% 0%, rgba(255,42,42,.10), transparent 70%);
-      pointer-events:none; opacity:.8; }
 
     #wrath-overlay .left{ display:flex; flex-direction:column; gap:2px; min-width:0; position:relative; z-index:1; }
     #wrath-overlay .name{ font-weight:900; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:58vw; }
     #wrath-overlay .sub{ opacity:.82; font-size:11px; }
-    #wrath-overlay .right{ opacity:.96; font-size:12px; white-space:nowrap; position:relative; z-index:1; }
-
-    #wrath-overlay .online{ border-left:4px solid var(--green) !important; }
-    #wrath-overlay .idle{ border-left:4px solid var(--yellow) !important; }
-    #wrath-overlay .offline{ border-left:4px solid var(--red) !important; box-shadow: var(--glowRed); }
-    #wrath-overlay .hospital{ border-left:4px solid var(--violet) !important; }
-    #wrath-overlay .hospTimer{ font-weight:900; letter-spacing:.4px; text-shadow:var(--glowEmber); }
-
-    #wrath-overlay .section-empty{ opacity:.85; font-size:12px; padding:8px 2px; }
-
-    #wrath-overlay .err{ margin-top:10px; padding:10px; border-radius:12px; background: var(--dangerBg) !important;
-      border:1px solid var(--dangerBorder) !important; font-size:12px; white-space:pre-wrap; box-shadow: var(--glowRed); }
-
-    #wrath-overlay .warbox{ margin-top:10px; padding:10px; border-radius:14px;
-      background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03)) !important;
-      border:1px solid rgba(255,255,255,.10) !important; font-size:12px; line-height:1.35; box-shadow: var(--glowEmber); }
-    #wrath-overlay .warrow{ display:flex; justify-content:space-between; gap:10px; margin:3px 0; }
-    #wrath-overlay .label{ opacity:.8; color: var(--muted) !important; }
-
-    #wrath-overlay .collapsible{ border-radius:14px; border:1px solid rgba(255,255,255,.10) !important;
-      background: linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.02)) !important;
-      box-shadow:0 10px 20px rgba(0,0,0,.22); overflow:hidden; margin:10px 0; }
-    #wrath-overlay .collapsible summary{ list-style:none; display:flex; align-items:center; justify-content:space-between; gap:10px;
-      cursor:pointer; padding:10px 12px; font-weight:950; letter-spacing:.7px; text-transform:uppercase; user-select:none; }
-    #wrath-overlay .collapsible summary::-webkit-details-marker{ display:none; }
-    #wrath-overlay .collapsible summary:after{ content:"▾"; opacity:.9; margin-left:8px; }
-    #wrath-overlay .collapsible[open] summary:after{ content:"▴"; }
-    #wrath-overlay .collapsible .body{ padding:0 10px 10px; }
 
     #wrath-overlay .actions{ display:flex; align-items:center; gap:8px; justify-content:flex-end; position:relative; z-index:2; white-space:nowrap; }
     #wrath-overlay .abtn{ cursor:pointer; user-select:none; padding:6px 10px; border-radius:12px;
@@ -584,8 +555,12 @@
       font-size:12px; font-weight:950; text-decoration:none !important; box-shadow:0 10px 18px rgba(0,0,0,.24);
       display:inline-flex; align-items:center; gap:6px; }
     #wrath-overlay .abtn:active{ transform: translateY(1px); }
-    #wrath-overlay .abtn.attack{ border-color: rgba(255,122,24,.45) !important; background: linear-gradient(180deg, rgba(255,122,24,.22), rgba(255,42,42,.10)) !important; box-shadow: var(--glowEmber); }
-    #wrath-overlay .abtn.bounty{ border-color: rgba(255,42,42,.40) !important; background: linear-gradient(180deg, rgba(255,42,42,.20), rgba(255,122,24,.10)) !important; box-shadow: var(--glowRed); }
+    #wrath-overlay .abtn.attack{ border-color: rgba(255,122,24,.45) !important; }
+    #wrath-overlay .abtn.bounty{ border-color: rgba(255,42,42,.40) !important; }
+
+    #wrath-overlay .abtn.yes{ border-color: rgba(0,255,102,.35) !important; box-shadow: 0 0 18px rgba(0,255,102,.10); }
+    #wrath-overlay .abtn.no{ border-color: rgba(255,51,51,.35) !important; box-shadow: 0 0 18px rgba(255,51,51,.10); }
+    #wrath-overlay .abtn.on{ outline:2px solid rgba(255,255,255,.12); filter:brightness(1.08); }
 
     #wrath-overlay .dealCard{ padding:10px; margin:6px 0; border-radius:14px; border:1px solid rgba(255,255,255,.08) !important;
       background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02)) !important;
@@ -601,7 +576,6 @@
       width:100%; box-sizing:border-box; padding:10px; border-radius:12px; border:1px solid rgba(255,255,255,.12) !important;
       background: rgba(0,0,0,.25) !important; outline:none; font-size:12px; }
     #wrath-overlay .dealGrid textarea{ grid-column:1 / -1; min-height:70px; resize:vertical; }
-    #wrath-overlay .dealHint{ font-size:11px; opacity:.8; margin-top:8px; }
 
     @media (max-width:520px){
       #wrath-overlay .name{ max-width:52vw; }
@@ -651,7 +625,6 @@
           <span class="pill" id="rt-hospital">🏥 0</span>
           <span class="pill" id="rt-avail">✅ Avail: 0</span>
 
-          <span class="btn" id="rt-opt"><span id="rt-opt-text">OPT IN</span></span>
           <span class="btn" id="rt-open-app">Open App</span>
           <span class="btn" id="rt-refresh">Refresh</span>
         </div>
@@ -661,10 +634,7 @@
       <div id="rt-war" class="warbox" style="display:none;"></div>
 
       <details class="collapsible" id="rt-deals" open>
-        <summary>
-          <span>💊 MED DEALS</span>
-          <span class="pill" id="rt-deals-count">0</span>
-        </summary>
+        <summary><span>💊 MED DEALS</span><span class="pill" id="rt-deals-count">0</span></summary>
         <div class="body">
           <div id="rt-deals-list"></div>
 
@@ -677,14 +647,12 @@
             <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:10px;">
               <span class="abtn" id="deal-submit">✅ Accept / Post Deal</span>
             </div>
-            <div class="dealHint">
-              Enemy member + our member are required. Only the person who posts a deal can delete it (“Deal Done”).
-            </div>
           </div>
         </div>
       </details>
 
       <div class="section-title"><div>🛡️ YOUR FACTION</div><div class="small" id="rt-you-title">—</div></div>
+
       <h2>🟢 ONLINE (0–20 mins) <span class="pill" id="rt-you-online-count">0</span></h2>
       <div id="rt-you-online"></div>
 
@@ -722,20 +690,14 @@
     document.body.appendChild(shield);
     document.body.appendChild(overlay);
 
-    // ===== draggable logic =====
     let cachedId = null;
-    let dragging = false;
-    let moved = false;
-    let startX = 0, startY = 0;
-    let startTop = 0, startLeft = 0;
+
+    // ===== draggable logic =====
+    let dragging = false, moved = false;
+    let startX = 0, startY = 0, startTop = 0, startLeft = 0;
 
     function isOpen() { return overlay.style.display === "block"; }
-    function openOverlay() {
-      overlay.style.display = "block";
-      cachedId = cachedId || detectTornId();
-      syncOptUI(cachedId || "unknown");
-      refreshState();
-    }
+    function openOverlay() { overlay.style.display = "block"; cachedId = cachedId || detectTornId(); refreshState(); }
     function closeOverlay() { overlay.style.display = "none"; }
     function toggleOverlay() { isOpen() ? closeOverlay() : openOverlay(); }
 
@@ -745,8 +707,7 @@
     }
 
     function onDown(ev) {
-      dragging = true;
-      moved = false;
+      dragging = true; moved = false;
       const p = getPoint(ev);
       startX = p.x; startY = p.y;
       startTop = parseFloat(shield.style.top || "0");
@@ -761,15 +722,12 @@
       const dx = p.x - startX;
       const dy = p.y - startY;
       if (!moved && (Math.abs(dx) > 6 || Math.abs(dy) > 6)) moved = true;
-
       if (moved) {
         const w = 48, h = 48;
         const maxLeft = window.innerWidth - w - 2;
         const maxTop = window.innerHeight - h - 2;
-        const nextLeft = clamp(startLeft + dx, 2, maxLeft);
-        const nextTop = clamp(startTop + dy, 2, maxTop);
-        shield.style.left = `${nextLeft}px`;
-        shield.style.top = `${nextTop}px`;
+        shield.style.left = `${clamp(startLeft + dx, 2, maxLeft)}px`;
+        shield.style.top  = `${clamp(startTop + dy, 2, maxTop)}px`;
       }
       ev.preventDefault(); ev.stopPropagation();
     }
@@ -778,9 +736,7 @@
       if (!dragging) return;
       dragging = false;
       shield.style.transition = "";
-      const top = parseFloat(shield.style.top || "0");
-      const left = parseFloat(shield.style.left || "0");
-      savePos(top, left);
+      savePos(parseFloat(shield.style.top || "0"), parseFloat(shield.style.left || "0"));
       if (!moved) toggleOverlay();
       ev.preventDefault(); ev.stopPropagation();
     }
@@ -789,15 +745,9 @@
     window.addEventListener("pointermove", onMove, true);
     window.addEventListener("pointerup", onUp, true);
 
-    shield.addEventListener("touchstart", onDown, { passive: false, capture: true });
-    window.addEventListener("touchmove", onMove, { passive: false, capture: true });
-    window.addEventListener("touchend", onUp, { passive: false, capture: true });
-
     // ===== buttons =====
     document.getElementById("rt-refresh").addEventListener("click", async (e) => {
       e.preventDefault(); e.stopPropagation();
-      cachedId = cachedId || detectTornId();
-      syncOptUI(cachedId || "unknown");
       await refreshState();
     }, true);
 
@@ -807,39 +757,46 @@
       openAppPanelWithId(cachedId);
     }, true);
 
-    document.getElementById("rt-opt").addEventListener("click", async (e) => {
+    // ✅ YES/NO availability per member
+    overlay.addEventListener("click", async (e) => {
+      const target = e.target;
+      if (!(target instanceof HTMLElement)) return;
+      const btn = target.closest("[data-avail][data-avail-id]");
+      if (!btn) return;
+
       e.preventDefault(); e.stopPropagation();
-      cachedId = cachedId || (await ensureIdOrWarn());
-      if (!cachedId) return;
 
-      const next = !getLocalAvail(cachedId);
-      setLocalAvail(cachedId, next);
-      syncOptUI(cachedId);
+      const memberId = btn.getAttribute("data-avail-id");
+      const which = btn.getAttribute("data-avail"); // yes/no
+      const available = (which === "yes");
 
-      const nm = detectPlayerName();
-      const res = await postAvailability(cachedId, next, nm);
+      const err = document.getElementById("rt-error");
+      btn.style.pointerEvents = "none";
+      const oldText = btn.textContent;
+      btn.textContent = available ? "⏳ YES..." : "⏳ NO...";
 
+      const res = await postAvailability(memberId, available, "");
       if (!res.ok) {
-        setLocalAvail(cachedId, !next);
-        syncOptUI(cachedId);
-        const err = document.getElementById("rt-error");
+        btn.style.pointerEvents = "";
+        btn.textContent = oldText || (available ? "✅ YES" : "❌ NO");
         if (err) {
           err.style.display = "block";
           err.textContent =
-            "Failed to update OPT\n" +
+            "Failed to update availability\n" +
             (typeof res.body === "string" ? res.body : JSON.stringify(res.body, null, 2));
         }
-      } else {
-        await refreshState();
+        return;
       }
+
+      await refreshState();
     }, true);
 
     // 💊 Post deal
     document.getElementById("deal-submit").addEventListener("click", async (e) => {
       e.preventDefault(); e.stopPropagation();
 
-      const tid = cachedId || (await ensureIdOrWarn());
-      if (!tid) return;
+      cachedId = cachedId || (await ensureIdOrWarn());
+      if (!cachedId) return;
 
       const reporterName = detectPlayerName();
       const state = window.__wrath_last_state || null;
@@ -849,9 +806,8 @@
       const notes = (document.getElementById("deal-notes").value || "").trim();
 
       const err = document.getElementById("rt-error");
-
-      if (!enemyId) { err.style.display="block"; err.textContent="Med Deals: Please select an enemy member."; return; }
-      if (!memberId) { err.style.display="block"; err.textContent="Med Deals: Please select one of our members."; return; }
+      if (!enemyId) { err.style.display="block"; err.textContent="Med Deals: Select an enemy member."; return; }
+      if (!memberId) { err.style.display="block"; err.textContent="Med Deals: Select our member."; return; }
 
       const enemyOpt = document.querySelector(`#deal-enemy-member option[value="${CSS.escape(enemyId)}"]`);
       const enemyName = enemyOpt ? enemyOpt.textContent.replace(/\s*\(\d+\)\s*$/, "").trim() : "";
@@ -859,20 +815,20 @@
       const memberOpt = document.querySelector(`#deal-member option[value="${CSS.escape(memberId)}"]`);
       const memberName = memberOpt ? memberOpt.textContent.replace(/\s*\(\d+\)\s*$/, "").trim() : "";
 
-      let enemyFaction = "";
+      let enemyFaction = null;
       try {
         const ef = ((state || {}).enemy || {}).faction || {};
         if (ef && ef.name) enemyFaction = ef.id ? `${ef.name} (${ef.id})` : `${ef.name}`;
       } catch (_) {}
 
       const payload = {
-        reporter_id: String(tid),
+        reporter_id: String(cachedId),
         reporter_name: reporterName || "",
         enemy_player_id: String(enemyId),
         enemy_player_name: enemyName || "",
         member_id: String(memberId),
         member_name: memberName || "",
-        enemy_faction: enemyFaction || null,
+        enemy_faction: enemyFaction,
         notes: notes || null,
       };
 
@@ -889,11 +845,10 @@
       await refreshState();
     }, true);
 
-    // 💊 Deal Done (delete) — removes immediately + refresh
+    // 💊 Deal Done delete (instant remove + refresh)
     overlay.addEventListener("click", async (e) => {
       const target = e.target;
       if (!(target instanceof HTMLElement)) return;
-
       const btn = target.closest("[data-deal-del]");
       if (!btn) return;
 
@@ -902,14 +857,14 @@
 
       e.preventDefault(); e.stopPropagation();
 
-      const tid = cachedId || (await ensureIdOrWarn());
-      if (!tid) return;
+      cachedId = cachedId || (await ensureIdOrWarn());
+      if (!cachedId) return;
 
       btn.style.pointerEvents = "none";
       const oldText = btn.textContent;
       btn.textContent = "⏳ Removing...";
 
-      const res = await deleteMedDeal(dealId, tid);
+      const res = await deleteMedDeal(dealId, cachedId);
       if (!res.ok) {
         btn.style.pointerEvents = "";
         btn.textContent = oldText || "🗑 Deal Done";
@@ -937,6 +892,7 @@
       await refreshState();
     }, true);
 
+    // auto refresh while open
     setInterval(() => {
       if (overlay.style.display === "block") {
         refreshState();

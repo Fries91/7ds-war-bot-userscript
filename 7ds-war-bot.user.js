@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         7DS*: Wrath War-Bot 🛡️ (Wrath Theme + Collapsible + Draggable) [SCOPED FIX + MED DEALS + YES/NO AVAIL + CHECKBOXES] (NEUTRAL DEFAULT)
 // @namespace    7ds-wrath-warbot
-// @version      7.6.0
-// @description  Wrath-themed shield overlay matching app.py. Uses /state (CSP-proof). Shield draggable + tap to open/close. YOUR faction has ✅YES/❌NO (availability) + checkboxes + 🎯 Bounty Me. ENEMY has ⚔️ Attack. 💊 Med Deals. ✅ YES/NO neutral by default; instant connected checkbox+highlight on click; Deal Done delete reliable.
+// @version      7.6.1
+// @description  Wrath-themed shield overlay matching app.py. Uses /state (CSP-proof). Shield draggable + tap to open/close. YOUR faction has ✅YES/❌NO (availability) + checkboxes + 🎯 Bounty Me. ENEMY has ⚔️ Attack. 💊 Med Deals. ✅ FIX: YES/NO loading text no longer destroys checkbox HTML, so boxes fill properly.
 // @match        https://www.torn.com/*
 // @match        https://torn.com/*
 // @grant        GM_addStyle
@@ -193,7 +193,6 @@
   }
 
   // ✅ Neutral default: do NOT set on/off from server here.
-  // We show checkboxes + highlight only after clicking.
   function memberHTML(r, st, mode) {
     const name = esc(r.name || r.id || "Unknown");
     const id = esc(r.id || "");
@@ -215,12 +214,12 @@
 
             <span class="abtn yes" data-avail="yes" data-avail-id="${esc(r.id)}">
               <span class="ck" data-ck="yes" aria-hidden="true"></span>
-              ✅ YES
+              <span class="lbl">✅ YES</span>
             </span>
 
             <span class="abtn no" data-avail="no" data-avail-id="${esc(r.id)}">
               <span class="ck" data-ck="no" aria-hidden="true"></span>
-              ❌ NO
+              <span class="lbl">❌ NO</span>
             </span>
 
             <a class="abtn bounty" href="${bountyUrlFor(r.id)}" target="_blank" rel="noopener noreferrer">🎯 Bounty Me</a>
@@ -521,6 +520,7 @@
       background: rgba(0,0,0,.18) !important;
       display:inline-grid; place-items:center;
       box-shadow: inset 0 0 0 1px rgba(0,0,0,.25);
+      flex: 0 0 auto;
     }
     #wrath-overlay .ck:after{
       content:"";
@@ -802,13 +802,15 @@
       const allBtns = memberRow ? memberRow.querySelectorAll("[data-avail][data-avail-id]") : [btn];
       allBtns.forEach(b => { if (b instanceof HTMLElement) b.style.pointerEvents = "none"; });
 
-      const oldText = btn.textContent;
-      btn.textContent = available ? "⏳ YES..." : "⏳ NO...";
+      // ✅ FIX: change ONLY label text, don’t destroy checkbox HTML
+      const lbl = btn.querySelector(".lbl");
+      const oldLbl = lbl ? lbl.textContent : "";
+      if (lbl) lbl.textContent = available ? "⏳ YES..." : "⏳ NO...";
 
       const res = await postAvailability(memberId, available, "");
       if (!res.ok) {
         allBtns.forEach(b => { if (b instanceof HTMLElement) b.style.pointerEvents = ""; });
-        btn.textContent = oldText || (available ? "✅ YES" : "❌ NO");
+        if (lbl) lbl.textContent = oldLbl || (available ? "✅ YES" : "❌ NO");
 
         if (err) {
           err.style.display = "block";

@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         7DS*: Wrath War-Bot 🛡️ (Wrath Theme + Collapsible + Draggable) [OPT BESIDE NAMES + LOCAL YES/NO + MED DEALS]
+// @name         7DS*: Wrath War-Bot 🛡️ (War Hub + Collapsible + Draggable) [OPT BESIDE NAMES + LOCAL YES/NO + MED DEALS]
 // @namespace    7ds-wrath-warbot
-// @version      7.7.6
-// @description  Wrath-themed shield overlay matching app.py. Uses /state (CSP-proof). Shield draggable + tap to open/close. ✅ YES/NO local only. 🔗 OPT button beside each member (self-only). Chain Sitters box shows opted-in (available=true). 💊 Med Deals delete is instant UI + REAL server delete (DELETE /api/med_deals/<id>).
+// @version      7.7.7
+// @description  War Hub overlay. Uses /state (CSP-proof). Shield draggable + tap to open/close. ✅ YES/NO local only. 🔗 OPT button beside each member (self-only). 💊 Med Deals delete is permanent (DELETE /api/med_deals/<id>).
 // @match        https://www.torn.com/*
 // @match        https://torn.com/*
 // @grant        GM_addStyle
@@ -123,8 +123,7 @@
     );
   }
 
-  // ✅ FIX: Your app.py DELETE endpoint is /api/med_deals/<int:deal_id>
-  // It reads requester_id from header X-Requester-Id OR query param requester_id.
+  // ✅ DELETE: /api/med_deals/<id>
   function deleteMedDeal(dealId, requesterId) {
     const url =
       `${API_DEALS}/${encodeURIComponent(String(dealId))}` +
@@ -208,6 +207,17 @@
 
   function bountyUrlFor(id) {
     return `https://www.torn.com/bounties.php?p=add&XID=${encodeURIComponent(String(id || ""))}`;
+  }
+
+  // ✅ NEW: “Target” button should go to the LEAD page instead
+  // If war.target is an ID, this opens their profile.
+  // If it’s a name, Torn won’t reliably resolve it; profile-by-ID is safest.
+  function leadUrlForTarget(targetVal) {
+    const t = String(targetVal || "").trim();
+    const isId = /^\d+$/.test(t);
+    if (isId) return `https://www.torn.com/profiles.php?XID=${encodeURIComponent(t)}`;
+    // fallback: take you to factions war screen (still useful if target is name)
+    return `https://www.torn.com/factions.php?step=your&type=war`;
   }
 
   // ✅ member row HTML (includes OPT beside name list)
@@ -450,7 +460,7 @@
     const f = state.faction || {};
     $("rt-you-title").textContent = `${(f.tag ? `[${f.tag}] ` : "")}${f.name || ""}`.trim() || "—";
 
-    // ✅ Cleaner HORIZONTAL war tracking
+    // ✅ War tracker: remove Start/End, and add TARGET → LEAD button
     const w = state.war || {};
     const warShow = (w.opponent || w.target || w.score !== null || w.enemy_score !== null);
     const warEl = $("rt-war");
@@ -461,22 +471,42 @@
       const our = esc(w.score ?? "—");
       const their = esc(w.enemy_score ?? "—");
       const tgt = esc(w.target ?? "—");
-      const stt = esc(w.start || "—");
-      const end = esc(w.end || "—");
+
+      const leadHref = leadUrlForTarget(w.target);
 
       warEl.innerHTML = `
         <div class="wargrid">
           <div class="warpill"><span class="k">Opponent</span><span class="v">${opp}</span></div>
           <div class="warpill"><span class="k">Opp ID</span><span class="v">${oppId}</span></div>
           <div class="warpill"><span class="k">Score</span><span class="v">${our} : ${their}</span></div>
-          <div class="warpill"><span class="k">Target</span><span class="v">${tgt}</span></div>
-          <div class="warpill"><span class="k">Start</span><span class="v">${stt}</span></div>
-          <div class="warpill"><span class="k">End</span><span class="v">${end}</span></div>
+
+          <div class="warpill">
+            <span class="k">Target</span>
+            <span class="v" style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
+              <span>${tgt}</span>
+              <a class="abtn attack" href="${leadHref}" target="_blank" rel="noopener noreferrer" title="Go to target lead">LEAD ➜</a>
+            </span>
+          </div>
         </div>
       `;
     }
 
-    const you = split(state.rows || []);
+    const you = (function splitRows(rows) {
+      const online = [], idle = [], offline = [], hosp = [];
+      for (const r of (rows || [])) {
+        const isHosp = !!r.hospital || r.status === "hospital";
+        if (isHosp) { hosp.push(r); continue; }
+        if (r.status === "online") online.push(r);
+        else if (r.status === "idle") idle.push(r);
+        else offline.push(r);
+      }
+      online.sort((a,b)=>(a.minutes ?? 999999) - (b.minutes ?? 999999));
+      idle.sort((a,b)=>(a.minutes ?? 999999) - (b.minutes ?? 999999));
+      offline.sort((a,b)=>(a.minutes ?? 999999) - (b.minutes ?? 999999));
+      hosp.sort((a,b)=>(Number(a.hospital_until) || 9999999999) - (Number(b.hospital_until) || 9999999999));
+      return { online, idle, offline, hosp };
+    })(state.rows || []);
+
     $("rt-you-online-count").textContent = String(you.online.length);
     $("rt-you-idle-count").textContent = String(you.idle.length);
     $("rt-you-hosp-count").textContent = String(you.hosp.length);
@@ -512,7 +542,7 @@
     tickHospitalTimers();
   }
 
-  // ✅ SCOPED CSS ONLY + war box horizontal
+  // ✅ CSS (same look) + war grid styles
   GM_addStyle(`
     #wrath-overlay, #wrath-overlay * { pointer-events: auto !important; }
 
@@ -594,7 +624,6 @@
 
     #wrath-overlay .actions{ display:flex; align-items:center; gap:6px; justify-content:flex-end; white-space:nowrap; }
 
-    /* smaller buttons */
     #wrath-overlay .abtn{ cursor:pointer; user-select:none; padding:5px 8px; border-radius:10px;
       border:1px solid rgba(255,255,255,.14) !important;
       background: linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.03)) !important;
@@ -664,7 +693,6 @@
     #wrath-overlay .warbox{ margin-top:10px; padding:10px; border-radius:14px; border:1px solid rgba(255,255,255,.10) !important;
       background: linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.02)) !important; font-size:12px; }
 
-    /* ✅ NEW: horizontal war grid */
     #wrath-overlay .wargrid{
       display:flex;
       flex-wrap:wrap;
@@ -721,7 +749,7 @@
     const shield = document.createElement("div");
     shield.id = "wrath-shield";
     shield.textContent = "🛡️";
-    shield.title = "Drag or tap to open/close 7DS*: Wrath War Panel";
+    shield.title = "Drag or tap to open/close War Hub";
     shield.style.top = `${pos.top}px`;
     shield.style.left = `${pos.left}px`;
 
@@ -731,7 +759,7 @@
       <div class="sigil"></div>
 
       <div class="topbar">
-        <div class="title">⚔ 7DS*: WRATH WAR PANEL</div>
+        <div class="title">⚔ WAR HUB</div>
         <div class="meta">
           <span id="rt-updated">Updated: —</span>
           <span class="pill" id="rt-online">🟢 0</span>
@@ -1011,7 +1039,7 @@
       await refreshState();
     }, true);
 
-    // 💊 Deal Done delete (PERMANENT now - fixed endpoint)
+    // 💊 Deal Done delete (PERMANENT)
     overlay.addEventListener("click", async (e) => {
       const target = e.target;
       if (!(target instanceof HTMLElement)) return;
@@ -1066,7 +1094,6 @@
         return;
       }
 
-      // server deleted -> refresh will NOT bring it back now
       await refreshState();
     }, true);
 

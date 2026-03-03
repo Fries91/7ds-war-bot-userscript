@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         7DS*: Wrath War-Bot 🛡️ (Wrath Theme + Collapsible + Draggable) [OPT BESIDE NAMES + LOCAL YES/NO + MED DEALS]
 // @namespace    7ds-wrath-warbot
-// @version      7.7.5
-// @description  Wrath-themed shield overlay matching app.py. Uses /state (CSP-proof). Shield draggable + tap to open/close. ✅ YES/NO local only. 🔗 OPT button beside each member (self-only). Chain Sitters box shows opted-in (available=true). 💊 Med Deals delete is instant UI + server delete.
+// @version      7.7.6
+// @description  Wrath-themed shield overlay matching app.py. Uses /state (CSP-proof). Shield draggable + tap to open/close. ✅ YES/NO local only. 🔗 OPT button beside each member (self-only). Chain Sitters box shows opted-in (available=true). 💊 Med Deals delete is instant UI + REAL server delete (DELETE /api/med_deals/<id>).
 // @match        https://www.torn.com/*
 // @match        https://torn.com/*
 // @grant        GM_addStyle
@@ -123,12 +123,17 @@
     );
   }
 
-  // ✅ DELETE BODY (your server supports /api/med_deals DELETE with body)
+  // ✅ FIX: Your app.py DELETE endpoint is /api/med_deals/<int:deal_id>
+  // It reads requester_id from header X-Requester-Id OR query param requester_id.
   function deleteMedDeal(dealId, requesterId) {
+    const url =
+      `${API_DEALS}/${encodeURIComponent(String(dealId))}` +
+      `?token=${encodeURIComponent(AVAIL_TOKEN)}&requester_id=${encodeURIComponent(String(requesterId || ""))}`;
+
     return httpJson(
       "DELETE",
-      `${API_DEALS}?token=${encodeURIComponent(AVAIL_TOKEN)}`,
-      { id: String(dealId), requester_id: String(requesterId || "") },
+      url,
+      null,
       { "X-Token": AVAIL_TOKEN, "X-Requester-Id": String(requesterId || "") }
     );
   }
@@ -445,19 +450,29 @@
     const f = state.faction || {};
     $("rt-you-title").textContent = `${(f.tag ? `[${f.tag}] ` : "")}${f.name || ""}`.trim() || "—";
 
+    // ✅ Cleaner HORIZONTAL war tracking
     const w = state.war || {};
     const warShow = (w.opponent || w.target || w.score !== null || w.enemy_score !== null);
     const warEl = $("rt-war");
     warEl.style.display = warShow ? "block" : "none";
     if (warShow) {
+      const opp = esc(w.opponent || "—");
+      const oppId = esc(w.opponent_id || "—");
+      const our = esc(w.score ?? "—");
+      const their = esc(w.enemy_score ?? "—");
+      const tgt = esc(w.target ?? "—");
+      const stt = esc(w.start || "—");
+      const end = esc(w.end || "—");
+
       warEl.innerHTML = `
-        <div class="warrow"><div class="label">Opponent</div><div>${esc(w.opponent || "—")}</div></div>
-        <div class="warrow"><div class="label">Opponent ID</div><div>${esc(w.opponent_id || "—")}</div></div>
-        <div class="warrow"><div class="label">Our Score</div><div>${esc(w.score ?? "—")}</div></div>
-        <div class="warrow"><div class="label">Enemy Score</div><div>${esc(w.enemy_score ?? "—")}</div></div>
-        <div class="warrow"><div class="label">Target</div><div>${esc(w.target ?? "—")}</div></div>
-        <div class="warrow"><div class="label">Start</div><div>${esc(w.start || "—")}</div></div>
-        <div class="warrow"><div class="label">End</div><div>${esc(w.end || "—")}</div></div>
+        <div class="wargrid">
+          <div class="warpill"><span class="k">Opponent</span><span class="v">${opp}</span></div>
+          <div class="warpill"><span class="k">Opp ID</span><span class="v">${oppId}</span></div>
+          <div class="warpill"><span class="k">Score</span><span class="v">${our} : ${their}</span></div>
+          <div class="warpill"><span class="k">Target</span><span class="v">${tgt}</span></div>
+          <div class="warpill"><span class="k">Start</span><span class="v">${stt}</span></div>
+          <div class="warpill"><span class="k">End</span><span class="v">${end}</span></div>
+        </div>
       `;
     }
 
@@ -497,7 +512,7 @@
     tickHospitalTimers();
   }
 
-  // ✅ SCOPED CSS ONLY + buttons smaller so names show more
+  // ✅ SCOPED CSS ONLY + war box horizontal
   GM_addStyle(`
     #wrath-overlay, #wrath-overlay * { pointer-events: auto !important; }
 
@@ -649,14 +664,33 @@
     #wrath-overlay .warbox{ margin-top:10px; padding:10px; border-radius:14px; border:1px solid rgba(255,255,255,.10) !important;
       background: linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.02)) !important; font-size:12px; }
 
-    #wrath-overlay .warrow{ display:flex; justify-content:space-between; gap:10px; margin:3px 0; }
-    #wrath-overlay .label{ opacity:.8; }
+    /* ✅ NEW: horizontal war grid */
+    #wrath-overlay .wargrid{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+      align-items:stretch;
+    }
+    #wrath-overlay .warpill{
+      display:flex;
+      flex-direction:column;
+      gap:4px;
+      padding:8px 10px;
+      border-radius:12px;
+      border:1px solid rgba(255,255,255,.10) !important;
+      background: rgba(0,0,0,.18) !important;
+      min-width: 130px;
+      flex: 1 1 140px;
+    }
+    #wrath-overlay .warpill .k{ opacity:.75; font-size:11px; text-transform:uppercase; letter-spacing:.6px; }
+    #wrath-overlay .warpill .v{ font-weight:950; font-size:12px; word-break:break-word; }
 
     @media (max-width:520px){
       #wrath-overlay .name{ max-width:66vw; }
       #wrath-overlay .abtn{ padding:5px 7px; font-size:10.5px; }
       #wrath-overlay .actions{ gap:5px; }
       #wrath-overlay .dealGrid{ grid-template-columns:1fr; }
+      #wrath-overlay .warpill{ min-width: 46%; flex: 1 1 46%; }
     }
   `);
 
@@ -977,7 +1011,7 @@
       await refreshState();
     }, true);
 
-    // 💊 Deal Done delete
+    // 💊 Deal Done delete (PERMANENT now - fixed endpoint)
     overlay.addEventListener("click", async (e) => {
       const target = e.target;
       if (!(target instanceof HTMLElement)) return;
@@ -1032,6 +1066,7 @@
         return;
       }
 
+      // server deleted -> refresh will NOT bring it back now
       await refreshState();
     }, true);
 
